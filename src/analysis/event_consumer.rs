@@ -1382,7 +1382,7 @@ fn find_inline_quantity<'a>(
         };
 
         number = number.trim();
-        unit = unit.trim();
+        unit = unit.trim().trim_matches(|c: char| !c.is_alphabetic());
 
         #[cfg(debug_assertions)]
         {
@@ -1605,6 +1605,59 @@ mod tests {
         assert_eq!(
             "./Sicilian-style Scottadito Lamb Chops",
             reference.path("/")
+        );
+    }
+
+    #[test]
+    fn test_find_inline_quantity() {
+        let conv = Converter::bundled();
+        assert_eq!(
+            find_inline_quantity("1ml", &conv),
+            Some((
+                "",
+                Quantity {
+                    value: 1.0.into(),
+                    unit: Some("ml".into()),
+                    scalable: false
+                },
+                ""
+            ))
+        );
+        assert_eq!(
+            find_inline_quantity("1 ml", &conv),
+            Some((
+                "",
+                Quantity {
+                    value: 1.0.into(),
+                    unit: Some("ml".into()),
+                    scalable: false
+                },
+                ""
+            ))
+        );
+        assert_eq!(
+            find_inline_quantity("1ml.", &conv),
+            Some((
+                "",
+                Quantity {
+                    value: 1.0.into(),
+                    unit: Some("ml".into()),
+                    scalable: false
+                },
+                ""
+            ))
+        );
+        assert_eq!(
+            find_inline_quantity("1 ml.", &conv),
+            Some((
+                "",
+                Quantity {
+                    value: 1.0.into(),
+                    unit: Some("ml".into()),
+                    scalable: false
+                },
+                ""
+            ))
         );
     }
 }
