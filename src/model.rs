@@ -3,6 +3,13 @@
 use relative_path::RelativePathBuf;
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
+use thiserror::Error;
+
+#[derive(Debug, Error)]
+pub enum ReferenceError {
+    #[error("reference is missing name {0}")]
+    MissingName(String),
+}
 
 #[cfg(feature = "ts")]
 use tsify::Tsify;
@@ -157,24 +164,36 @@ pub enum Item {
     },
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 #[cfg_attr(feature = "ts", derive(Tsify))]
 pub struct RecipeReference(RelativePathBuf);
 
-impl RecipeReference {
-    pub fn new(path: &str) -> Self {
-        Self(RelativePathBuf::from(&path).normalize())
-    }
-
-    pub fn name(&self) -> &str {
-        self.0.file_name().unwrap_or(self.0.as_str())
+impl PartialEq for RecipeReference {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.normalize() == other.0.normalize()
     }
 }
 
-impl std::fmt::Display for RecipeReference {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
+impl RecipeReference {
+    pub fn new(path: &str) -> Result<Self, ReferenceError> {
+        match RelativePathBuf::from(&path) {
+            rp if rp.file_name().is_some() => Ok(RecipeReference(rp)),
+            _ => Err(ReferenceError::MissingName(path.to_string())),
+        }
     }
+
+    pub fn name(&self) -> &str {
+        self.0
+            .file_name()
+            .expect("Reference must have a name! This should not be possible")
+    }
+}
+
+impl std::string::ToString for RecipeReference {
+	fn to_string(&self) -> String {
+		return self.0.to_string()
+	}
+
 }
 
 /// A recipe ingredient
