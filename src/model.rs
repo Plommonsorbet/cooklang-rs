@@ -175,9 +175,19 @@ impl PartialEq for RecipeReference {
 }
 
 impl RecipeReference {
+    fn prefix(path: RelativePathBuf) -> RelativePathBuf {
+        if path.starts_with("./") || path.starts_with("../") {
+            path
+        } else {
+            RelativePathBuf::from("./").join(&path)
+        }
+    }
+    fn normalize(path: RelativePathBuf) -> RelativePathBuf {
+        Self::prefix(path.normalize())
+    }
     pub fn from(path: &str) -> Result<Self, ReferenceError> {
-        match RelativePathBuf::from(&path) {
-            rp if rp.file_name().is_some() => Ok(RecipeReference(rp)),
+        match RelativePathBuf::from(path) {
+            rp if rp.file_name().is_some() => Ok(RecipeReference(Self::normalize(rp))),
             _ => Err(ReferenceError::MissingName(path.to_string())),
         }
     }
@@ -193,7 +203,7 @@ impl RecipeReference {
             .0
             .parent()
             .unwrap_or_else(|| relative_path::RelativePath::new(""));
-        RecipeReference(base.join(&self.0).normalize())
+        RecipeReference(Self::normalize(base.join(&self.0)))
     }
 }
 
@@ -575,6 +585,9 @@ pub struct Timer {
 mod tests {
     use super::RecipeReference;
 
+    use relative_path::RelativePathBuf;
+
+    #[track_caller]
     fn rel(reference: &str, other: &str) -> String {
         RecipeReference::from(reference)
             .unwrap()
@@ -586,7 +599,7 @@ mod tests {
     fn sibling_in_same_directory() {
         assert_eq!(
             rel("./tomato", "recipes/pasta/spaghetti"),
-            "recipes/pasta/tomato"
+            "./recipes/pasta/tomato"
         );
     }
 
@@ -594,7 +607,7 @@ mod tests {
     fn parent_directory_reference() {
         assert_eq!(
             rel("../sauces/tomato", "recipes/pasta/spaghetti"),
-            "recipes/sauces/tomato"
+            "./recipes/sauces/tomato"
         );
     }
 
@@ -602,14 +615,14 @@ mod tests {
     fn multiple_parent_directory_references() {
         assert_eq!(
             rel("../../sauces/tomato", "recipes/italian/pasta/spaghetti"),
-            "recipes/sauces/tomato"
+            "./recipes/sauces/tomato"
         );
     }
 
     #[test]
     fn other_at_root_has_no_parent() {
         // "spaghetti" has no directory component, so the base is the root.
-        assert_eq!(rel("./sauce", "spaghetti"), "sauce");
+        assert_eq!(rel("./sauce", "spaghetti"), "./sauce");
     }
 
     #[test]
@@ -617,13 +630,13 @@ mod tests {
         // A bare relative path behaves the same as one with a "./" prefix.
         assert_eq!(
             rel("sauces/tomato", "recipes/pasta/spaghetti"),
-            "recipes/pasta/sauces/tomato"
+            "./recipes/pasta/sauces/tomato"
         );
     }
 
     #[test]
     fn relative_to_self_resolves_to_own_path() {
-        assert_eq!(rel("./spaghetti", "./spaghetti"), "spaghetti");
+        assert_eq!(rel("./spaghetti", "spaghetti"), "./spaghetti");
     }
 
     #[test]
@@ -637,7 +650,33 @@ mod tests {
     fn preserves_name_of_the_resolved_reference() {
         let resolved = RecipeReference::from("../sauces/tomato")
             .unwrap()
-            .relative_to(&RecipeReference::from("recipes/pasta/spaghetti").unwrap());
+            .relative_to(&RecipeReference::from("./recipes/pasta/spaghetti").unwrap());
         assert_eq!(resolved.name(), "tomato");
+    }
+
+    #[test]
+    fn bare_path_is_prefixed_with_dot_slash() {
+        assert_eq!(
+            RecipeReference::from("spaghetti").unwrap().to_string(),
+            "./spaghetti"
+        );
+        assert_eq!(
+            RecipeReference::from("pasta/spaghetti")
+                .unwrap()
+                .to_string(),
+            "./pasta/spaghetti"
+        );
+    }
+
+    #[test]
+    fn already_prefixed_path_is_left_unchanged() {
+        assert_eq!(
+            RecipeReference::from("./spaghetti").unwrap().to_string(),
+            "./spaghetti"
+        );
+        assert_eq!(
+            RecipeReference::from("../spaghetti").unwrap().to_string(),
+            "../spaghetti"
+        );
     }
 }
