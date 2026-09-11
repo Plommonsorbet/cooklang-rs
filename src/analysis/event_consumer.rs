@@ -572,7 +572,8 @@ impl<'i> RecipeCollector<'i, '_> {
         let (ingredient, location) = ingredient.take_pair();
 
         let mut name = ingredient.name.text_trimmed();
-        let reference = parse_reference(&name);
+        let reference = parse_reference(&name)
+            .and_then(|r| self.content.source.as_ref().map(|s| s.relative_to(&r)));
 
         if let Some(reference) = &reference {
             name = reference.name().into();
