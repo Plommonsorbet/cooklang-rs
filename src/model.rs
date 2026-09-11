@@ -41,7 +41,10 @@ pub struct Recipe {
     pub timers: Vec<Timer>,
     /// All the inline quantities
     pub inline_quantities: Vec<Quantity>,
+    /// The source for the recipe
+    pub source: Option<RecipeReference>,
 }
+
 
 /// A section holding steps
 #[derive(Debug, Default, Serialize, Deserialize, PartialEq, Clone)]
@@ -185,10 +188,13 @@ pub struct Ingredient {
     pub note: Option<String>,
     /// Recipe reference
     pub reference: Option<RecipeReference>,
-    /// How the cookware is related to others
+    /// How the ingrient is related to others
     pub relation: IngredientRelation,
     #[cfg_attr(feature = "ts", serde(skip))]
     pub(crate) modifiers: Modifiers,
+
+	// The source for the recipe
+    pub source: Option<RecipeReference>,
 }
 
 impl Ingredient {
