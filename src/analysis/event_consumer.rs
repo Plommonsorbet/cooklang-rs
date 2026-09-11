@@ -51,6 +51,7 @@ macro_rules! warning {
 pub fn parse_events<'i, 'c>(
     events: impl Iterator<Item = Event<'i>>,
     input: &'i str,
+    source: Option<RecipeReference>,
     extensions: Extensions,
     converter: &Converter,
     parse_options: ParseOptions,
@@ -68,6 +69,7 @@ pub fn parse_events<'i, 'c>(
             cookware: Default::default(),
             timers: Default::default(),
             inline_quantities: Default::default(),
+            source: source,
         },
         current_section: Section::default(),
 
@@ -587,6 +589,7 @@ impl<'i> RecipeCollector<'i, '_> {
                 Vec::new(),
                 self.define_mode != DefineMode::Components,
             ),
+            source: self.content.source.clone(),
         };
 
         if let Some(inter_data) = ingredient.intermediate_data {

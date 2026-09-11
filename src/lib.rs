@@ -217,16 +217,27 @@ impl CooklangParser {
 
     /// Parse a recipe
     pub fn parse(&self, input: &str) -> RecipeResult {
-        self.parse_with_options(input, ParseOptions::default())
+        self.parse_with_options(input, ParseOptions::default(), None)
+    }
+
+    /// Parse with reference
+    pub fn parse_referenced(&self, input: &str, source: Option<RecipeReference>) -> RecipeResult {
+        self.parse_with_options(input, ParseOptions::default(), source)
     }
 
     /// Same as [`Self::parse`] but with aditional options
     #[tracing::instrument(level = "debug", name = "parse", skip_all, fields(len = input.len()))]
-    pub fn parse_with_options(&self, input: &str, options: ParseOptions) -> RecipeResult {
+    pub fn parse_with_options(
+        &self,
+        input: &str,
+        options: ParseOptions,
+        source: Option<RecipeReference>,
+    ) -> RecipeResult {
         let mut parser = parser::PullParser::new(input, self.extensions);
         analysis::parse_events(
             &mut parser,
             input,
+            source,
             self.extensions,
             &self.converter,
             options,
@@ -252,6 +263,7 @@ impl CooklangParser {
         analysis::parse_events(
             meta_events,
             input,
+            None,
             self.extensions,
             &self.converter,
             options,
