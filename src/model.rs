@@ -175,7 +175,7 @@ impl PartialEq for RecipeReference {
 }
 
 impl RecipeReference {
-    pub fn new(path: &str) -> Result<Self, ReferenceError> {
+    pub fn from(path: &str) -> Result<Self, ReferenceError> {
         match RelativePathBuf::from(&path) {
             rp if rp.file_name().is_some() => Ok(RecipeReference(rp)),
             _ => Err(ReferenceError::MissingName(path.to_string())),
@@ -190,10 +190,9 @@ impl RecipeReference {
 }
 
 impl std::string::ToString for RecipeReference {
-	fn to_string(&self) -> String {
-		return self.0.to_string()
-	}
-
+    fn to_string(&self) -> String {
+        return self.0.to_string();
+    }
 }
 
 /// A recipe ingredient

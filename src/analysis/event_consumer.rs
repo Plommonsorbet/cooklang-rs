@@ -1497,7 +1497,7 @@ fn yaml_find_key_position(text: &str, key: &str) -> Option<usize> {
 
 fn parse_reference(name: &str) -> Option<RecipeReference> {
     if name.starts_with("./") || name.starts_with("../") {
-        if let Ok(reference) = RecipeReference::new(name) {
+        if let Ok(reference) = RecipeReference::from(name) {
             Some(reference)
         } else {
             None
@@ -1516,36 +1516,36 @@ mod tests {
         // Test Unix-style paths
         assert_eq!(
             parse_reference("./pasta/spaghetti"),
-            RecipeReference::new("./pasta/spaghetti").ok()
+            RecipeReference::from("./pasta/spaghetti").ok()
         );
 
         assert_eq!(
             parse_reference("../sauces/tomato"),
-            RecipeReference::new("../sauces/tomato").ok()
+            RecipeReference::from("../sauces/tomato").ok()
         );
 
         // Test deeper paths
         assert_eq!(
             parse_reference("./recipes/italian/pasta/spaghetti"),
-            RecipeReference::new("./recipes/italian/pasta/spaghetti").ok()
+            RecipeReference::from("./recipes/italian/pasta/spaghetti").ok()
         );
 
         // Test paths with no components (just file)
         assert_eq!(
             parse_reference("./spaghetti"),
-            RecipeReference::new("./spaghetti").ok()
+            RecipeReference::from("./spaghetti").ok()
         );
         assert_eq!(parse_reference("./spaghetti").unwrap().name(), "spaghetti");
 
         // Test paths with upper directories
         assert_eq!(
             parse_reference("./../../spaghetti"),
-            RecipeReference::new("./../../spaghetti").ok()
+            RecipeReference::from("./../../spaghetti").ok()
         );
 
         assert_eq!(
             parse_reference("../sauces/tomato"),
-            RecipeReference::new("../sauces/tomato").ok()
+            RecipeReference::from("../sauces/tomato").ok()
         );
 
         // Test path names
@@ -1578,7 +1578,7 @@ mod tests {
         // Test display
         assert_eq!(
             "./Sicilian-style Scottadito Lamb Chops",
-            RecipeReference::new("./Sicilian-style Scottadito Lamb Chops")
+            RecipeReference::from("./Sicilian-style Scottadito Lamb Chops")
                 .unwrap()
                 .to_string()
         );
