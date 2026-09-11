@@ -187,6 +187,14 @@ impl RecipeReference {
             .file_name()
             .expect("Reference must have a name! This should not be possible")
     }
+
+    pub(crate) fn relative_to(&self, other: &RecipeReference) -> RecipeReference {
+        let base = other
+            .0
+            .parent()
+            .unwrap_or_else(|| relative_path::RelativePath::new(""));
+        RecipeReference(base.join(&self.0).normalize())
+    }
 }
 
 impl std::string::ToString for RecipeReference {
@@ -561,4 +569,75 @@ pub struct Timer {
     /// - If the [`TIMER_REQUIRES_TIME`](crate::Extensions::TIMER_REQUIRES_TIME)
     ///   extension is enabled, this is guaranteed to be [`Some`].
     pub quantity: Option<Quantity>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::RecipeReference;
+
+    fn rel(reference: &str, other: &str) -> String {
+        RecipeReference::from(reference)
+            .unwrap()
+            .relative_to(&RecipeReference::from(other).unwrap())
+            .to_string()
+    }
+
+    #[test]
+    fn sibling_in_same_directory() {
+        assert_eq!(
+            rel("./tomato", "recipes/pasta/spaghetti"),
+            "recipes/pasta/tomato"
+        );
+    }
+
+    #[test]
+    fn parent_directory_reference() {
+        assert_eq!(
+            rel("../sauces/tomato", "recipes/pasta/spaghetti"),
+            "recipes/sauces/tomato"
+        );
+    }
+
+    #[test]
+    fn multiple_parent_directory_references() {
+        assert_eq!(
+            rel("../../sauces/tomato", "recipes/italian/pasta/spaghetti"),
+            "recipes/sauces/tomato"
+        );
+    }
+
+    #[test]
+    fn other_at_root_has_no_parent() {
+        // "spaghetti" has no directory component, so the base is the root.
+        assert_eq!(rel("./sauce", "spaghetti"), "sauce");
+    }
+
+    #[test]
+    fn reference_without_dot_prefix_is_treated_as_relative() {
+        // A bare relative path behaves the same as one with a "./" prefix.
+        assert_eq!(
+            rel("sauces/tomato", "recipes/pasta/spaghetti"),
+            "recipes/pasta/sauces/tomato"
+        );
+    }
+
+    #[test]
+    fn relative_to_self_resolves_to_own_path() {
+        assert_eq!(rel("./spaghetti", "./spaghetti"), "spaghetti");
+    }
+
+    #[test]
+    fn can_escape_above_the_other_reference_root() {
+        // Going up more levels than "other" has just walks above the root;
+        // relative_to does not clamp this.
+        assert_eq!(rel("../tomato", "spaghetti"), "../tomato");
+    }
+
+    #[test]
+    fn preserves_name_of_the_resolved_reference() {
+        let resolved = RecipeReference::from("../sauces/tomato")
+            .unwrap()
+            .relative_to(&RecipeReference::from("recipes/pasta/spaghetti").unwrap());
+        assert_eq!(resolved.name(), "tomato");
+    }
 }
