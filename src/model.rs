@@ -1,8 +1,8 @@
 //! Recipe representation
 
-use std::borrow::Cow;
-
+use relative_path::RelativePathBuf;
 use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
 
 #[cfg(feature = "ts")]
 use tsify::Tsify;
@@ -44,7 +44,6 @@ pub struct Recipe {
     /// The source for the recipe
     pub source: Option<RecipeReference>,
 }
-
 
 /// A section holding steps
 #[derive(Debug, Default, Serialize, Deserialize, PartialEq, Clone)]
@@ -160,14 +159,21 @@ pub enum Item {
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 #[cfg_attr(feature = "ts", derive(Tsify))]
-pub struct RecipeReference {
-    pub name: String,
-    pub components: Vec<String>,
-}
+pub struct RecipeReference(RelativePathBuf);
 
 impl RecipeReference {
-    pub fn path(&self, separator: &str) -> String {
-        self.components.join(separator) + separator + &self.name
+    pub fn new(path: &str) -> Self {
+        Self(RelativePathBuf::from(&path).normalize())
+    }
+
+    pub fn name(&self) -> &str {
+        self.0.file_name().unwrap_or(self.0.as_str())
+    }
+}
+
+impl std::fmt::Display for RecipeReference {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
     }
 }
 
@@ -193,7 +199,7 @@ pub struct Ingredient {
     #[cfg_attr(feature = "ts", serde(skip))]
     pub(crate) modifiers: Modifiers,
 
-	// The source for the recipe
+    // The source for the recipe
     pub source: Option<RecipeReference>,
 }
 

@@ -575,7 +575,7 @@ impl<'i> RecipeCollector<'i, '_> {
         let reference = parse_reference(&name);
 
         if let Some(reference) = &reference {
-            name = reference.name.clone().into();
+            name = reference.name().into();
         }
 
         let mut new_igr = Ingredient {
@@ -1496,22 +1496,8 @@ fn yaml_find_key_position(text: &str, key: &str) -> Option<usize> {
 }
 
 fn parse_reference(name: &str) -> Option<RecipeReference> {
-    if name.starts_with("./")
-        || name.starts_with("../")
-        || name.starts_with(".\\")
-        || name.starts_with("..\\")
-    {
-        let path = name.replace('\\', "/");
-        let mut components: Vec<String> = path.split('/').map(String::from).collect();
-        let file_stem = components.pop().unwrap();
-        if !file_stem.is_empty() {
-            Some(RecipeReference {
-                components,
-                name: file_stem,
-            })
-        } else {
-            None
-        }
+    if name.starts_with("./") || name.starts_with("../") {
+        Some(RecipeReference::new(name))
     } else {
         None
     }
