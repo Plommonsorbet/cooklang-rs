@@ -1,5 +1,6 @@
 //! Metadata of a recipe
 
+use crate::float::{equal_f64, round_f64};
 use std::{borrow::Cow, num::ParseFloatError, str::FromStr};
 
 use serde::{Deserialize, Serialize};
@@ -12,6 +13,16 @@ use crate::{
     convert::{ConvertError, ConvertTo, ConvertUnit, ConvertValue, PhysicalQuantity, UnknownUnit},
     Converter,
 };
+
+const SERVINGS_PRECISION: u32 = 1;
+const SERVINGS_EQUAL_TOLERANCE: f64 = 0.1;
+
+pub(crate) fn round_servings(val: f64) -> f64 {
+    round_f64(val, SERVINGS_PRECISION)
+}
+pub(crate) fn equal_servings(a: f64, b: f64) -> bool {
+    equal_f64(a, b, SERVINGS_EQUAL_TOLERANCE)
+}
 
 /// Metadata of a recipe
 ///
@@ -392,14 +403,14 @@ impl CooklangValueExt for serde_yaml::Value {
 
     fn as_servings(&self) -> Option<Servings> {
         // Try as number first
-        if let Some(n) = self.as_u32() {
+        if let Some(n) = self.as_f64() {
             return Some(Servings::Number(n));
         }
 
         // Return as text if it's a string
         if let Some(s) = self.as_str() {
             // Try to parse as number
-            if let Ok(n) = s.parse::<u32>() {
+            if let Ok(n) = s.parse::<f64>() {
                 Some(Servings::Number(n))
             } else {
                 Some(Servings::Text(s.to_string()))
@@ -537,19 +548,31 @@ pub(crate) fn check_std_entry(
 }
 
 /// Servings information that can be numeric or a string
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[cfg_attr(feature = "ts", derive(tsify::Tsify))]
 #[serde(untagged)]
 pub enum Servings {
     /// Numeric servings count
-    Number(u32),
+    Number(f64),
     /// String servings (when it can't be parsed as a number)
     Text(String),
 }
 
+impl PartialEq for Servings {
+    fn eq(&self, other: &Self) -> bool {
+        match (&self, &other) {
+            (Servings::Number(a), Servings::Number(b)) => equal_servings(*a, *b),
+            (Servings::Text(a), Servings::Text(b)) => a == b,
+            _ => false,
+        }
+    }
+}
+
+impl Eq for Servings {}
+
 impl Servings {
     /// Get the numeric value if available
-    pub fn as_number(&self) -> Option<u32> {
+    pub fn as_number(&self) -> Option<f64> {
         match self {
             Servings::Number(n) => Some(*n),
             Servings::Text(_) => None,
