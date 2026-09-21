@@ -250,10 +250,10 @@ pub enum QuantityOpError {
 #[deprecated(since = "0.18.8", note = "renamed to `QuantityOpError`")]
 pub type QuantityAddError = QuantityOpError;
 
-/// Error subtracting a quantity from a [`GroupedQuantity`]
+/// Error during an operation on a [`GroupedQuantity`]
 #[derive(Debug, Error)]
-pub enum GroupedQuantitySubError {
-    #[error("No compatible quantity in the group to subtract from")]
+pub enum GroupedQuantityOpError {
+    #[error("No compatible quantity in the group to take from")]
     NoCompatibleQuantity,
 
     #[error(transparent)]
@@ -349,7 +349,7 @@ impl Quantity {
     /// result keeps the unit of `self`, so `1 l` minus `300 ml` is `0.7 l`.
     ///
     /// The result can be negative, callers that don't want that have to check
-    /// it. [`GroupedQuantity::try_sub`] does.
+    /// it. [`GroupedQuantity::try_take`] does.
     pub fn try_sub(&self, rhs: &Self, converter: &Converter) -> Result<Self, QuantityOpError> {
         self.try_op(rhs, converter, Value::try_sub)
     }
@@ -605,26 +605,26 @@ impl GroupedQuantity {
         };
     }
 
-    /// Subtract a quantity from the group
+    /// Take a quantity out of the group
     ///
-    /// The quantity is subtracted from the one it would have been added to by
-    /// [`GroupedQuantity::add`], converting units when needed, so subtracting
-    /// `300 ml` from a group with `1 l` leaves `0.7 l`.
+    /// The quantity is taken from the one it would have been added to by
+    /// [`GroupedQuantity::add`], converting units when needed, so taking
+    /// `300 ml` out of a group with `1 l` leaves `0.7 l`.
     ///
-    /// A group holds an amount needed, so the result is saturated at zero: if
-    /// the group has less than what's subtracted, the quantity is removed from
-    /// the group instead of going negative. A range is only removed when its
-    /// end reaches zero, a negative start is clamped.
+    /// A group holds an amount needed, so nothing can be taken twice: unlike
+    /// [`Quantity::try_sub`], the result saturates at zero and the quantity is
+    /// removed from the group instead of going negative. A range is only
+    /// removed when its end reaches zero, a negative start is clamped.
     ///
     /// Returns an error, leaving the group untouched, when the group has no
-    /// quantity to subtract from, when `q` is a text value and when the units
-    /// are incompatible. Quantities that could not be added to any other are
-    /// never subtracted from.
-    pub fn try_sub(
+    /// quantity to take from, when `q` is a text value and when the units are
+    /// incompatible. Quantities that could not be added to any other are never
+    /// taken from.
+    pub fn try_take(
         &mut self,
         q: &Quantity,
         converter: &Converter,
-    ) -> Result<(), GroupedQuantitySubError> {
+    ) -> Result<(), GroupedQuantityOpError> {
         if q.value.is_text() {
             return Err(QuantityOpError::from(TextValueError(q.value.clone())).into());
         }
@@ -643,7 +643,7 @@ impl GroupedQuantity {
             Slot::Unknown(unit_text) => self.unknown.get(unit_text),
             Slot::NoUnit => self.no_unit.as_ref(),
         };
-        let stored = stored.ok_or(GroupedQuantitySubError::NoCompatibleQuantity)?;
+        let stored = stored.ok_or(GroupedQuantityOpError::NoCompatibleQuantity)?;
 
         let mut remaining = stored.try_sub(q, converter)?;
         let empty = clamp_at_zero(remaining.value_mut());
@@ -672,21 +672,21 @@ impl GroupedQuantity {
         }
     }
 
-    /// Subtract another group from this one
+    /// Take another group out of this one
     ///
-    /// Every quantity of `other` is subtracted with
-    /// [`GroupedQuantity::try_sub`], all of them or none: the first one that
-    /// can't be subtracted returns its error, leaving the group untouched.
-    pub fn try_sub_group(
+    /// Every quantity of `other` is taken with
+    /// [`GroupedQuantity::try_take`], all of them or none: the first one that
+    /// can't be taken returns its error, leaving the group untouched.
+    pub fn try_take_group(
         &mut self,
         other: &Self,
         converter: &Converter,
-    ) -> Result<(), GroupedQuantitySubError> {
-        let mut subtracted = self.clone();
+    ) -> Result<(), GroupedQuantityOpError> {
+        let mut taken = self.clone();
         for q in other.iter() {
-            subtracted.try_sub(q, converter)?;
+            taken.try_take(q, converter)?;
         }
-        *self = subtracted;
+        *self = taken;
         Ok(())
     }
 
@@ -1155,66 +1155,61 @@ mod tests {
     }
 
     #[test]
-    fn subtract_grouped_quantities() {
+    fn take_from_grouped_quantities() {
         let converter = Converter::bundled();
         let group = |quantities: &[&str]| grouped_qty(quantities, &converter);
-        //let sub = |quantities: &[&str], q: &str| {
-        //    let mut g = group(quantities);
-        //    g.try_sub(&qty(q), &converter).map(|()| g)
-        //};
-
-        let sub = |mut a: GroupedQuantity, b: Quantity| {
-            a.try_sub(&b, &converter).unwrap();
+        let take = |mut a: GroupedQuantity, b: Quantity| {
+            a.try_take(&b, &converter).unwrap();
             a
         };
-        let sub_err = |mut a: GroupedQuantity, b: Quantity| a.try_sub(&b, &converter).is_err();
+        let take_err = |mut a: GroupedQuantity, b: Quantity| a.try_take(&b, &converter).is_err();
         let eq = |a: GroupedQuantity, b: GroupedQuantity| a.equals(&b, &converter);
 
         // only the compatible quantity of the group changes
         assert!(eq(
-            sub(group(&["1%l", "1%kg", "2%bunch", "3"]), qty("500%ml")),
+            take(group(&["1%l", "1%kg", "2%bunch", "3"]), qty("500%ml")),
             group(&["0.5%l", "1%kg", "2%bunch", "3"])
         ));
         assert!(eq(
-            sub(group(&["2%bunch"]), qty("1%bunch")),
+            take(group(&["2%bunch"]), qty("1%bunch")),
             group(&["1%bunch"])
         ));
-        assert!(eq(sub(group(&["3"]), qty("1")), group(&["2"])));
+        assert!(eq(take(group(&["3"]), qty("1")), group(&["2"])));
 
         //// saturates at zero, removing the quantity from the group
-        assert!(sub(group(&["1%l"]), qty("1000%ml")).is_empty());
-        assert!(sub(group(&["1%l"]), qty("2%l")).is_empty());
+        assert!(take(group(&["1%l"]), qty("1000%ml")).is_empty());
+        assert!(take(group(&["1%l"]), qty("2%l")).is_empty());
         assert!(eq(
-            sub(group(&["1%l", "1%kg"]), qty("2%l")),
+            take(group(&["1%l", "1%kg"]), qty("2%l")),
             group(&["1%kg"])
         ));
         // a range is only removed when its end reaches zero
         assert!(eq(
-            sub(group(&["1-2%l"]), qty("1.5%l")),
+            take(group(&["1-2%l"]), qty("1.5%l")),
             group(&["0-0.5%l"])
         ));
-        assert!(sub(group(&["1-2%l"]), qty("2%l")).is_empty());
+        assert!(take(group(&["1-2%l"]), qty("2%l")).is_empty());
 
-        //// nothing to subtract from
-        assert!(sub_err(group(&[]), qty("1%l")));
-        assert!(sub_err(group(&["1%l"]), qty("1%kg")));
-        assert!(sub_err(group(&["1%l"]), qty("1%bunch")));
-        assert!(sub_err(group(&["1%l"]), qty("1")));
-        //// text values are never subtracted
-        assert!(sub_err(group(&["some"]), qty("some")));
+        //// nothing to take from
+        assert!(take_err(group(&[]), qty("1%l")));
+        assert!(take_err(group(&["1%l"]), qty("1%kg")));
+        assert!(take_err(group(&["1%l"]), qty("1%bunch")));
+        assert!(take_err(group(&["1%l"]), qty("1")));
+        //// text values are never taken
+        assert!(take_err(group(&["some"]), qty("some")));
 
         {
             //// the group is untouched when it errors
             let mut g = group(&["1%l"]);
-            assert!(g.try_sub(&qty("1%kg"), &converter).is_err());
+            assert!(g.try_take(&qty("1%kg"), &converter).is_err());
             assert!(g.equals(&group(&["1%l"]), &converter));
         }
 
         {
-            //// a whole group is subtracted at once
+            //// a whole group is taken at once
             let mut g = group(&["1%l", "2%bunch", "3"]);
             assert!(g
-                .try_sub_group(&group(&["500%ml", "1%bunch"]), &converter)
+                .try_take_group(&group(&["500%ml", "1%bunch"]), &converter)
                 .is_ok());
             assert!(eq(g, group(&["0.5%l", "1%bunch", "3"])));
         }
@@ -1223,7 +1218,7 @@ mod tests {
             //// or not at all, even when some of its quantities could be
             let mut g = group(&["1%l", "2%bunch"]);
             assert!(g
-                .try_sub_group(&group(&["500%ml", "1%clove"]), &converter)
+                .try_take_group(&group(&["500%ml", "1%clove"]), &converter)
                 .is_err());
             assert!(eq(g, group(&["1%l", "2%bunch"])));
         }
