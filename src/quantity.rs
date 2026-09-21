@@ -9,7 +9,7 @@ use thiserror::Error;
 #[cfg(feature = "ts")]
 use tsify::Tsify;
 
-use crate::convert::{ConvertError, Converter, PhysicalQuantity, Unit};
+use crate::convert::{ConvertError, ConvertTo, Converter, PhysicalQuantity, System, Unit};
 
 /// A quantity used in components
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -26,6 +26,15 @@ impl PartialEq for Quantity {
         // ignore scalable for equality
         self.value == other.value && self.unit == other.unit
     }
+}
+
+fn quantity_equals(converter: &Converter, a: &Quantity, b: &Quantity) -> bool {
+    let mut na = a.clone();
+    let mut nb = b.clone();
+    na.convert(ConvertTo::SameSystem, &converter).unwrap();
+    nb.convert(ConvertTo::SameSystem, &converter).unwrap();
+
+    na == nb
 }
 
 /// Base value
@@ -742,5 +751,26 @@ mod tests {
             assert!((num.value() - value).abs() < 10e-9);
         }
         num
+    }
+
+    fn qty(q: &str) -> Quantity {
+        let parts: Vec<&str> = q.splitn(2, "%").collect();
+
+        let (value, unit) = match parts.len() {
+            2 => (parts[0].parse::<f64>().unwrap(), Some(parts[1].to_string())),
+            1 => (parts[0].parse::<f64>().unwrap(), None),
+            _ => unreachable!(),
+        };
+
+        Quantity::new(value.into(), unit)
+    }
+
+    #[test]
+    fn compare_quantities() {
+        let converter = Converter::bundled();
+        dbg!(&qty("2%dl").unit_info(&converter));
+        //quantity_equals(&converter, &qty("3%dl"), &qty("2%dl"));
+        //quantity_equals(&converter, &qty("200%ml"), &qty("2%dl"));
+        //assert!());
     }
 }
