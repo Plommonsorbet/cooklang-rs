@@ -234,9 +234,9 @@ impl From<String> for Value {
     }
 }
 
-/// Error during adding of quantities
+/// Error during an operation between quantities
 #[derive(Debug, Error)]
-pub enum QuantityAddError {
+pub enum QuantityOpError {
     #[error(transparent)]
     IncompatibleUnits(#[from] IncompatibleUnits),
 
@@ -245,6 +245,19 @@ pub enum QuantityAddError {
 
     #[error(transparent)]
     Convert(#[from] ConvertError),
+}
+
+#[deprecated(since = "0.18.8", note = "renamed to `QuantityOpError`")]
+pub type QuantityAddError = QuantityOpError;
+
+/// Error subtracting a quantity from a [`GroupedQuantity`]
+#[derive(Debug, Error)]
+pub enum GroupedQuantitySubError {
+    #[error("No compatible quantity in the group to subtract from")]
+    NoCompatibleQuantity,
+
+    #[error(transparent)]
+    Op(#[from] QuantityOpError),
 }
 
 /// Error that makes quantity units incompatible to be added
@@ -326,7 +339,27 @@ impl Quantity {
     }
 
     /// Try adding two quantities
-    pub fn try_add(&self, rhs: &Self, converter: &Converter) -> Result<Self, QuantityAddError> {
+    pub fn try_add(&self, rhs: &Self, converter: &Converter) -> Result<Self, QuantityOpError> {
+        self.try_op(rhs, converter, Value::try_add)
+    }
+
+    /// Try subtracting two quantities
+    ///
+    /// Like [`Quantity::try_add`], the units have to be compatible and the
+    /// result keeps the unit of `self`, so `1 l` minus `300 ml` is `0.7 l`.
+    ///
+    /// The result can be negative, callers that don't want that have to check
+    /// it. [`GroupedQuantity::try_sub`] does.
+    pub fn try_sub(&self, rhs: &Self, converter: &Converter) -> Result<Self, QuantityOpError> {
+        self.try_op(rhs, converter, Value::try_sub)
+    }
+
+    fn try_op(
+        &self,
+        rhs: &Self,
+        converter: &Converter,
+        op: impl FnOnce(&Value, &Value) -> Result<Value, TextValueError>,
+    ) -> Result<Self, QuantityOpError> {
         // 1. Check if the units are compatible and (maybe) get a common unit
         let convert_to = self.compatible_unit(rhs, converter)?;
 
@@ -336,8 +369,8 @@ impl Quantity {
             rhs.convert(&to, converter)?;
         };
 
-        // 3. Sum values
-        let value = self.value.try_add(&rhs.value)?;
+        // 3. Operate the values
+        let value = op(&self.value, &rhs.value)?;
 
         // 4. New quantity
         let qty = Quantity::new(value, self.unit.clone());
@@ -431,6 +464,43 @@ impl TryAdd for Value {
     }
 }
 
+pub trait TrySub: Sized {
+    type Err;
+
+    fn try_sub(&self, rhs: &Self) -> Result<Self, Self::Err>;
+}
+
+impl TrySub for Value {
+    type Err = TextValueError;
+
+    /// Subtracts the ranges as intervals, so the smallest possible result is
+    /// the start and the largest the end
+    fn try_sub(&self, rhs: &Self) -> Result<Value, TextValueError> {
+        let val = match (self, rhs) {
+            (Value::Number(a), Value::Number(b)) => Value::Number((a.value() - b.value()).into()),
+            (Value::Range { start, end }, Value::Number(n)) => Value::Range {
+                start: (start.value() - n.value()).into(),
+                end: (end.value() - n.value()).into(),
+            },
+            (Value::Number(n), Value::Range { start, end }) => Value::Range {
+                start: (n.value() - end.value()).into(),
+                end: (n.value() - start.value()).into(),
+            },
+            (Value::Range { start: s1, end: e1 }, Value::Range { start: s2, end: e2 }) => {
+                Value::Range {
+                    start: (s1.value() - e2.value()).into(),
+                    end: (e1.value() - s2.value()).into(),
+                }
+            }
+            (t @ Value::Text(_), _) | (_, t @ Value::Text(_)) => {
+                return Err(TextValueError(t.to_owned()));
+            }
+        };
+
+        Ok(val)
+    }
+}
+
 /// Group of quantities
 ///
 /// This support efficient adding of new quantities, merging other groups..
@@ -455,6 +525,31 @@ pub struct GroupedQuantity {
     no_unit: Option<Quantity>,
     /// could not operate/add to others
     other: Vec<Quantity>,
+}
+
+/// Where a quantity is stored inside a [`GroupedQuantity`]
+#[derive(Clone, Copy)]
+enum Slot<'a> {
+    Known(PhysicalQuantity),
+    Unknown(&'a str),
+    NoUnit,
+}
+
+/// Clamps a value at zero, returns `true` if nothing is left of it
+fn clamp_at_zero(value: &mut Value) -> bool {
+    match value {
+        Value::Number(n) => n.value() <= 0.0,
+        Value::Range { start, end } => {
+            if end.value() <= 0.0 {
+                return true;
+            }
+            if start.value() < 0.0 {
+                *start = 0.0.into();
+            }
+            false
+        }
+        Value::Text(_) => false,
+    }
 }
 
 impl GroupedQuantity {
@@ -510,11 +605,86 @@ impl GroupedQuantity {
         };
     }
 
+    /// Subtract a quantity from the group
+    ///
+    /// The quantity is subtracted from the one it would have been added to by
+    /// [`GroupedQuantity::add`], converting units when needed, so subtracting
+    /// `300 ml` from a group with `1 l` leaves `0.7 l`.
+    ///
+    /// A group holds an amount needed, so the result is saturated at zero: if
+    /// the group has less than what's subtracted, the quantity is removed from
+    /// the group instead of going negative. A range is only removed when its
+    /// end reaches zero, a negative start is clamped.
+    ///
+    /// Returns an error, leaving the group untouched, when the group has no
+    /// quantity to subtract from, when `q` is a text value and when the units
+    /// are incompatible. Quantities that could not be added to any other are
+    /// never subtracted from.
+    pub fn try_sub(
+        &mut self,
+        q: &Quantity,
+        converter: &Converter,
+    ) -> Result<(), GroupedQuantitySubError> {
+        if q.value.is_text() {
+            return Err(QuantityOpError::from(TextValueError(q.value.clone())).into());
+        }
+
+        // where `add` would have put it
+        let slot = match q.unit() {
+            Some(unit_text) => match q.unit_info(converter) {
+                Some(unit) => Slot::Known(unit.physical_quantity),
+                None => Slot::Unknown(unit_text),
+            },
+            None => Slot::NoUnit,
+        };
+
+        let stored = match slot {
+            Slot::Known(physical_quantity) => self.known[physical_quantity].as_ref(),
+            Slot::Unknown(unit_text) => self.unknown.get(unit_text),
+            Slot::NoUnit => self.no_unit.as_ref(),
+        };
+        let stored = stored.ok_or(GroupedQuantitySubError::NoCompatibleQuantity)?;
+
+        let mut remaining = stored.try_sub(q, converter)?;
+        let empty = clamp_at_zero(remaining.value_mut());
+
+        match slot {
+            Slot::Known(physical_quantity) => {
+                self.known[physical_quantity] = (!empty).then_some(remaining)
+            }
+            Slot::Unknown(unit_text) => {
+                if empty {
+                    self.unknown.remove(unit_text);
+                } else {
+                    self.unknown.insert(unit_text.to_string(), remaining);
+                }
+            }
+            Slot::NoUnit => self.no_unit = (!empty).then_some(remaining),
+        }
+
+        Ok(())
+    }
+
     /// Merge the group with another one
     pub fn merge(&mut self, other: &Self, converter: &Converter) {
         for q in other.iter() {
             self.add(q, converter)
         }
+    }
+
+    /// Subtract another group from this one
+    ///
+    /// Every quantity of `other` is subtracted with
+    /// [`GroupedQuantity::try_sub`]. The ones that can't be subtracted are
+    /// returned, the rest are applied.
+    pub fn subtract(&mut self, other: &Self, converter: &Converter) -> Vec<Quantity> {
+        let mut not_subtracted = Vec::new();
+        for q in other.iter() {
+            if self.try_sub(q, converter).is_err() {
+                not_subtracted.push(q.clone());
+            }
+        }
+        not_subtracted
     }
 
     /// Calls [`Quantity::fit`] on all possible underlying units
@@ -950,5 +1120,79 @@ mod tests {
 
         assert!(eq(&["some", "a lot"], &["a lot", "some"]));
         assert!(!eq(&["some", "a lot"], &["a lot", "some", "some"]));
+    }
+
+    #[test]
+    fn subtract_quantities() {
+        let converter = Converter::bundled();
+        let sub = |a: &str, b: &str| qty(a).try_sub(&qty(b), &converter);
+        let eq = |a: Quantity, b: &str| a.equals(&qty(b), &converter);
+
+        // rhs is converted, the unit of lhs is kept
+        assert!(eq(sub("1%l", "300%ml").unwrap(), "0.7%l"));
+        assert!(eq(sub("1%kg", "500%g").unwrap(), "500%g"));
+        assert!(eq(sub("2%bunch", "1%bunch").unwrap(), "1%bunch"));
+
+        // the result can be negative
+        assert!(eq(sub("2", "3").unwrap(), "-1"));
+        assert!(eq(sub("100%g", "1%kg").unwrap(), "-900%g"));
+
+        // ranges are subtracted as intervals
+        assert!(eq(sub("1-2%l", "500%ml").unwrap(), "0.5-1.5%l"));
+        assert!(eq(sub("1-2%l", "0.5-1%l").unwrap(), "0-1.5%l"));
+        assert!(eq(sub("2%l", "0.5-1%l").unwrap(), "1-1.5%l"));
+
+        // incompatible like when adding
+        assert!(sub("1%l", "1%kg").is_err());
+        assert!(sub("1%l", "1%bunch").is_err());
+        assert!(sub("1%l", "1").is_err());
+        assert!(sub("some", "1").is_err());
+        assert!(sub("1", "some").is_err());
+    }
+
+    #[test]
+    fn subtract_grouped_quantities() {
+        let converter = Converter::bundled();
+        let group = |quantities: &[&str]| grouped_qty(quantities, &converter);
+        let sub = |quantities: &[&str], q: &str| {
+            let mut g = group(quantities);
+            g.try_sub(&qty(q), &converter).map(|()| g)
+        };
+        let eq = |a: GroupedQuantity, b: &[&str]| a.equals(&group(b), &converter);
+
+        // only the compatible quantity of the group changes
+        assert!(eq(
+            sub(&["1%l", "1%kg", "2%bunch", "3"], "500%ml").unwrap(),
+            &["0.5%l", "1%kg", "2%bunch", "3"]
+        ));
+        assert!(eq(sub(&["2%bunch"], "1%bunch").unwrap(), &["1%bunch"]));
+        assert!(eq(sub(&["3"], "1").unwrap(), &["2"]));
+
+        // saturates at zero, removing the quantity from the group
+        assert!(sub(&["1%l"], "1000%ml").unwrap().is_empty());
+        assert!(sub(&["1%l"], "2%l").unwrap().is_empty());
+        assert!(eq(sub(&["1%l", "1%kg"], "2%l").unwrap(), &["1%kg"]));
+        // a range is only removed when its end reaches zero
+        assert!(eq(sub(&["1-2%l"], "1.5%l").unwrap(), &["0-0.5%l"]));
+        assert!(sub(&["1-2%l"], "2%l").unwrap().is_empty());
+
+        // nothing to subtract from
+        assert!(sub(&[], "1%l").is_err());
+        assert!(sub(&["1%l"], "1%kg").is_err());
+        assert!(sub(&["1%l"], "1%bunch").is_err());
+        assert!(sub(&["1%l"], "1").is_err());
+        // text values are never subtracted
+        assert!(sub(&["some"], "some").is_err());
+
+        // the group is untouched when it errors
+        let mut g = group(&["1%l"]);
+        assert!(g.try_sub(&qty("1%kg"), &converter).is_err());
+        assert!(g.equals(&group(&["1%l"]), &converter));
+
+        // subtracting a whole group returns what could not be subtracted
+        let mut g = group(&["1%l", "2%bunch"]);
+        let left = g.subtract(&group(&["500%ml", "1%clove"]), &converter);
+        assert!(g.equals(&group(&["0.5%l", "2%bunch"]), &converter));
+        assert_eq!(left, vec![qty("1%clove")]);
     }
 }
