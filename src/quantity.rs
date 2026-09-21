@@ -1125,74 +1125,94 @@ mod tests {
     #[test]
     fn subtract_quantities() {
         let converter = Converter::bundled();
-        let sub = |a: &str, b: &str| qty(a).try_sub(&qty(b), &converter);
         let eq = |a: Quantity, b: &str| a.equals(&qty(b), &converter);
+        let sub = |a: &str, b: &str| qty(a).try_sub(&qty(b), &converter).unwrap();
+        let sub_err = |a: &str, b: &str| qty(a).try_sub(&qty(b), &converter).is_err();
 
         // rhs is converted, the unit of lhs is kept
-        assert!(eq(sub("1%l", "300%ml").unwrap(), "0.7%l"));
-        assert!(eq(sub("1%kg", "500%g").unwrap(), "500%g"));
-        assert!(eq(sub("2%bunch", "1%bunch").unwrap(), "1%bunch"));
+        assert!(eq(sub("1%l", "300%ml"), "0.7%l"));
+        assert!(eq(sub("1%kg", "500%g"), "500%g"));
+        assert!(eq(sub("2%bunch", "1%bunch"), "1%bunch"));
 
         // the result can be negative
-        assert!(eq(sub("2", "3").unwrap(), "-1"));
-        assert!(eq(sub("100%g", "1%kg").unwrap(), "-900%g"));
+        assert!(eq(sub("2", "3"), "-1"));
+        assert!(eq(sub("100%g", "1%kg"), "-900%g"));
 
         // ranges are subtracted as intervals
-        assert!(eq(sub("1-2%l", "500%ml").unwrap(), "0.5-1.5%l"));
-        assert!(eq(sub("1-2%l", "0.5-1%l").unwrap(), "0-1.5%l"));
-        assert!(eq(sub("2%l", "0.5-1%l").unwrap(), "1-1.5%l"));
+        assert!(eq(sub("1-2%l", "500%ml"), "0.5-1.5%l"));
+        assert!(eq(sub("1-2%l", "0.5-1%l"), "0-1.5%l"));
+        assert!(eq(sub("2%l", "0.5-1%l"), "1-1.5%l"));
 
         // incompatible like when adding
-        assert!(sub("1%l", "1%kg").is_err());
-        assert!(sub("1%l", "1%bunch").is_err());
-        assert!(sub("1%l", "1").is_err());
-        assert!(sub("some", "1").is_err());
-        assert!(sub("1", "some").is_err());
+        assert!(sub_err("1%l", "1%kg"));
+        assert!(sub_err("1%l", "1%bunch"));
+        assert!(sub_err("1%l", "1"));
+        assert!(sub_err("some", "1"));
+        assert!(sub_err("1", "some"));
     }
 
     #[test]
     fn subtract_grouped_quantities() {
         let converter = Converter::bundled();
         let group = |quantities: &[&str]| grouped_qty(quantities, &converter);
-        let sub = |quantities: &[&str], q: &str| {
-            let mut g = group(quantities);
-            g.try_sub(&qty(q), &converter).map(|()| g)
+        //let sub = |quantities: &[&str], q: &str| {
+        //    let mut g = group(quantities);
+        //    g.try_sub(&qty(q), &converter).map(|()| g)
+        //};
+
+        let sub = |mut a: GroupedQuantity, b: Quantity| {
+            a.try_sub(&b, &converter).unwrap();
+            a
         };
-        let eq = |a: GroupedQuantity, b: &[&str]| a.equals(&group(b), &converter);
+        let sub_err = |mut a: GroupedQuantity, b: Quantity| a.try_sub(&b, &converter).is_err();
+        let eq = |a: GroupedQuantity, b: GroupedQuantity| a.equals(&b, &converter);
 
         // only the compatible quantity of the group changes
         assert!(eq(
-            sub(&["1%l", "1%kg", "2%bunch", "3"], "500%ml").unwrap(),
-            &["0.5%l", "1%kg", "2%bunch", "3"]
+            sub(group(&["1%l", "1%kg", "2%bunch", "3"]), qty("500%ml")),
+            group(&["0.5%l", "1%kg", "2%bunch", "3"])
         ));
-        assert!(eq(sub(&["2%bunch"], "1%bunch").unwrap(), &["1%bunch"]));
-        assert!(eq(sub(&["3"], "1").unwrap(), &["2"]));
+        assert!(eq(
+            sub(group(&["2%bunch"]), qty("1%bunch")),
+            group(&["1%bunch"])
+        ));
+        assert!(eq(sub(group(&["3"]), qty("1")), group(&["2"])));
 
-        // saturates at zero, removing the quantity from the group
-        assert!(sub(&["1%l"], "1000%ml").unwrap().is_empty());
-        assert!(sub(&["1%l"], "2%l").unwrap().is_empty());
-        assert!(eq(sub(&["1%l", "1%kg"], "2%l").unwrap(), &["1%kg"]));
+        //// saturates at zero, removing the quantity from the group
+        assert!(sub(group(&["1%l"]), qty("1000%ml")).is_empty());
+        assert!(sub(group(&["1%l"]), qty("2%l")).is_empty());
+        assert!(eq(
+            sub(group(&["1%l", "1%kg"]), qty("2%l")),
+            group(&["1%kg"])
+        ));
         // a range is only removed when its end reaches zero
-        assert!(eq(sub(&["1-2%l"], "1.5%l").unwrap(), &["0-0.5%l"]));
-        assert!(sub(&["1-2%l"], "2%l").unwrap().is_empty());
+        assert!(eq(
+            sub(group(&["1-2%l"]), qty("1.5%l")),
+            group(&["0-0.5%l"])
+        ));
+        assert!(sub(group(&["1-2%l"]), qty("2%l")).is_empty());
 
-        // nothing to subtract from
-        assert!(sub(&[], "1%l").is_err());
-        assert!(sub(&["1%l"], "1%kg").is_err());
-        assert!(sub(&["1%l"], "1%bunch").is_err());
-        assert!(sub(&["1%l"], "1").is_err());
-        // text values are never subtracted
-        assert!(sub(&["some"], "some").is_err());
+        //// nothing to subtract from
+        assert!(sub_err(group(&[]), qty("1%l")));
+        assert!(sub_err(group(&["1%l"]), qty("1%kg")));
+        assert!(sub_err(group(&["1%l"]), qty("1%bunch")));
+        assert!(sub_err(group(&["1%l"]), qty("1")));
+        //// text values are never subtracted
+        assert!(sub_err(group(&["some"]), qty("some")));
 
-        // the group is untouched when it errors
-        let mut g = group(&["1%l"]);
-        assert!(g.try_sub(&qty("1%kg"), &converter).is_err());
-        assert!(g.equals(&group(&["1%l"]), &converter));
+        {
+            //// the group is untouched when it errors
+            let mut g = group(&["1%l"]);
+            assert!(g.try_sub(&qty("1%kg"), &converter).is_err());
+            assert!(g.equals(&group(&["1%l"]), &converter));
+        }
 
-        // subtracting a whole group returns what could not be subtracted
-        let mut g = group(&["1%l", "2%bunch"]);
-        let left = g.subtract(&group(&["500%ml", "1%clove"]), &converter);
-        assert!(g.equals(&group(&["0.5%l", "2%bunch"]), &converter));
-        assert_eq!(left, vec![qty("1%clove")]);
+        {
+            //// subtracting a whole group returns what could not be subtracted
+            let mut g = group(&["1%l", "2%bunch"]);
+            let left = g.subtract(&group(&["500%ml", "1%clove"]), &converter);
+            assert!(g.equals(&group(&["0.5%l", "2%bunch"]), &converter));
+            assert_eq!(left, vec![qty("1%clove")]);
+        }
     }
 }
