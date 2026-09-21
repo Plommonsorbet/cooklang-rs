@@ -906,10 +906,9 @@ mod tests {
         assert!(eq("2%tsp", "2.05%tsp"));
         assert!(!eq("2%tsp", "2.5%tsp"));
 
-        // text and ranges
-        let text = |t: &str| Quantity::new(Value::Text(t.to_string()), None);
-        assert!(text("some").equals(&text("some"), &converter));
-        assert!(!text("some").equals(&text("a lot"), &converter));
+        assert!(eq("some", "some"));
+        assert!(!eq("some", "a lot"));
+
         let range = |start: f64, end: f64, unit: &str| {
             Quantity::new(
                 Value::Range {
