@@ -138,6 +138,18 @@ impl Converter {
         }
     }
 
+    /// Get the smallest unit of a physical quantity in a system.
+    ///
+    /// This is the unit every other one in the same family converts up from,
+    /// for example `mg` for metric mass or `tsp` for imperial volume. It is
+    /// always one of [`Self::best_units`].
+    ///
+    /// Returns `None` if the physical quantity has no units.
+    pub fn base_unit(&self, quantity: PhysicalQuantity, system: System) -> Option<Arc<Unit>> {
+        let unit_id = self.best[quantity].conversions(system).base()?;
+        Some(Arc::clone(&self.all_units[unit_id]))
+    }
+
     /// Find a unit by any of it's names, symbols or aliases
     pub fn find_unit(&self, unit: &str) -> Option<Arc<Unit>> {
         let uid = self.unit_index.get_unit_id(unit).ok()?;
@@ -165,7 +177,44 @@ impl Converter {
     pub(crate) fn should_fit_fraction(&self, unit: &Unit) -> bool {
         self.fractions_config(unit).enabled
     }
+
+    /// Compares two values of the same unit allowing the error its fractions
+    /// configuration allows
+    ///
+    /// When the unit can be written as a fraction, the tolerance is the
+    /// relative `accuracy` of its fractions configuration, so two values that
+    /// would be approximated to the same fraction compare equal. Otherwise the
+    /// tolerance only absorbs the error of converting the values between units.
+    ///
+    /// Without a unit, or with a unit unknown to this converter, the default
+    /// fractions configuration is used.
+    pub fn float_eq(&self, unit: Option<&Unit>, a: f64, b: f64) -> bool {
+        let cfg = unit
+            .and_then(|u| {
+                let unit_id = self.unit_index.get_unit_id(u.symbol()).ok()?;
+                Some(
+                    self.fractions
+                        .config(u.system, u.physical_quantity, unit_id),
+                )
+            })
+            .unwrap_or_default();
+
+        let tolerance = if cfg.enabled {
+            cfg.accuracy as f64
+        } else {
+            CONVERSION_EPSILON
+        };
+
+        // covers equal values, zeros and infinities
+        if a == b {
+            return true;
+        }
+        (a - b).abs() <= tolerance * a.abs().max(b.abs())
+    }
 }
+
+/// Relative error of a conversion between units, they go through `f64` ratios
+const CONVERSION_EPSILON: f64 = 1e-9;
 
 #[cfg(not(feature = "bundled_units"))]
 impl Default for Converter {
@@ -491,6 +540,8 @@ impl Quantity {
             ConvertTo::Best(target_system) => {
                 self.fit_fraction(&new_unit, Some(target_system), converter)?;
             }
+            // no fraction fitting: it could pick a bigger unit of the family
+            ConvertTo::Base(_) => {}
             ConvertTo::SameSystem => {
                 self.fit_fraction(&new_unit, original_system, converter)?;
             }
@@ -519,6 +570,24 @@ impl Quantity {
         self.convert(ConvertTo::SameSystem, converter)?;
 
         Ok(())
+    }
+
+    /// Converts the unit to the smallest one of its family, in the same system.
+    ///
+    /// For example, `1 kg` would be converted to `1000 g`. This is the inverse
+    /// of [`Self::fit`], useful to get comparable values for quantities of the
+    /// same physical quantity.
+    ///
+    /// Unknown units and quantities without a unit are left untouched.
+    #[tracing::instrument(level = "trace", skip_all)]
+    pub fn to_base_unit(&mut self, converter: &Converter) -> Result<(), ConvertError> {
+        // only known units can be converted
+        let Some(unit) = self.unit_info(converter) else {
+            return Ok(());
+        };
+        let system = unit.system.unwrap_or(converter.default_system);
+
+        self.convert(ConvertTo::Base(system), converter)
     }
 
     /// Fits the quantity as an approximation.
@@ -643,6 +712,7 @@ impl Converter {
                 (val, Arc::clone(to))
             }
             ConvertTo::Best(system) => self.convert_to_best(value, unit, system)?,
+            ConvertTo::Base(system) => self.convert_to_base(value, unit, system)?,
             ConvertTo::SameSystem => {
                 self.convert_to_best(value, unit, unit.system.unwrap_or(self.default_system))?
             }
@@ -682,6 +752,23 @@ impl Converter {
         let converted = self.convert_value(value, unit, best_unit.as_ref());
 
         Ok((converted, best_unit))
+    }
+
+    fn convert_to_base(
+        &self,
+        value: ConvertValue,
+        unit: &Unit,
+        system: System,
+    ) -> Result<(ConvertValue, Arc<Unit>), ConvertError> {
+        let base_unit = self.base_unit(unit.physical_quantity, system).ok_or(
+            ConvertError::BestUnitNotFound {
+                physical_quantity: unit.physical_quantity,
+                system: Some(system),
+            },
+        )?;
+        let converted = self.convert_value(value, unit, base_unit.as_ref());
+
+        Ok((converted, base_unit))
     }
 
     fn convert_value(&self, value: ConvertValue, from: &Unit, to: &Unit) -> ConvertValue {
@@ -756,6 +843,8 @@ pub enum ConvertUnit<'a> {
 pub enum ConvertTo<'a> {
     SameSystem,
     Best(System),
+    /// The smallest unit of the physical quantity in the given system
+    Base(System),
     Unit(ConvertUnit<'a>),
 }
 
@@ -885,4 +974,85 @@ pub enum ConvertError {
 
     #[error(transparent)]
     UnknownUnit(#[from] UnknownUnit),
+}
+
+#[cfg(all(test, feature = "bundled_units"))]
+mod tests {
+    use super::*;
+    use test_case::test_case;
+
+    #[test]
+    fn base_unit_is_the_smallest_of_the_family() {
+        let converter = Converter::bundled();
+
+        let base = |q, s| converter.base_unit(q, s).unwrap().symbol().to_string();
+        assert_eq!(base(PhysicalQuantity::Mass, System::Metric), "mg");
+        assert_eq!(base(PhysicalQuantity::Mass, System::Imperial), "oz");
+        assert_eq!(base(PhysicalQuantity::Volume, System::Metric), "ml");
+        assert_eq!(base(PhysicalQuantity::Volume, System::Imperial), "tsp");
+        // unified (not per system) family
+        assert_eq!(base(PhysicalQuantity::Time, System::Imperial), "s");
+    }
+
+    #[test_case(1.0, "kg" => (1_000_000.0, "mg".to_string()) ; "metric mass")]
+    #[test_case(1.0, "mg" => (1.0, "mg".to_string()) ; "already base")]
+    #[test_case(1.5, "l" => (1500.0, "ml".to_string()) ; "metric volume")]
+    #[test_case(1.0, "lb" => (16.0, "oz".to_string()) ; "imperial mass")]
+    #[test_case(2.0, "h" => (7200.0, "s".to_string()) ; "time")]
+    fn quantity_to_base_unit(value: f64, unit: &str) -> (f64, String) {
+        let converter = Converter::bundled();
+
+        let mut q = Quantity::new(value.into(), Some(unit.to_string()));
+        q.to_base_unit(&converter).unwrap();
+
+        let Value::Number(n) = q.value() else {
+            panic!("not a number")
+        };
+        // conversions go through f64 ratios, round the noise away
+        let value = (n.value() * 1e6).round() / 1e6;
+        (value, q.unit().unwrap().to_string())
+    }
+
+    #[test]
+    fn float_eq_uses_the_fractions_accuracy() {
+        let converter = Converter::bundled();
+
+        let ml = converter.find_unit("ml").unwrap();
+        let tsp = converter.find_unit("tsp").unwrap();
+
+        // metric has fractions disabled, only conversion noise is absorbed
+        assert!(converter.float_eq(Some(&ml), 300.0, 300.000_000_1));
+        assert!(!converter.float_eq(Some(&ml), 300.0, 299.0));
+
+        // tsp inherits the imperial 5% accuracy
+        assert!(converter.float_eq(Some(&tsp), 2.0, 2.09));
+        assert!(!converter.float_eq(Some(&tsp), 2.0, 2.2));
+
+        // no unit falls back to the default config (fractions disabled)
+        assert!(converter.float_eq(None, 1.0, 1.000_000_000_1));
+        assert!(!converter.float_eq(None, 1.0, 1.05));
+    }
+
+    #[test]
+    fn float_eq_edge_values() {
+        let converter = Converter::bundled();
+        let tsp = converter.find_unit("tsp").unwrap();
+
+        assert!(converter.float_eq(Some(&tsp), 0.0, 0.0));
+        assert!(!converter.float_eq(Some(&tsp), 0.0, 0.1));
+        assert!(converter.float_eq(Some(&tsp), f64::INFINITY, f64::INFINITY));
+        assert!(!converter.float_eq(Some(&tsp), f64::NAN, f64::NAN));
+    }
+
+    #[test]
+    fn to_base_unit_ignores_unknown_and_missing_units() {
+        let converter = Converter::bundled();
+
+        for unit in [None, Some("bunch".to_string())] {
+            let mut q = Quantity::new(1.0.into(), unit);
+            let before = q.clone();
+            q.to_base_unit(&converter).unwrap();
+            assert_eq!(q, before);
+        }
+    }
 }
