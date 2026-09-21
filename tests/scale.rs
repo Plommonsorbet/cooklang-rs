@@ -16,7 +16,7 @@ Mix and bake."#;
     // Check original servings
     assert_eq!(
         recipe.metadata.servings().and_then(|s| s.as_number()),
-        Some(4)
+        Some(4.0)
     );
 
     let orig_servings_value = recipe
@@ -26,14 +26,16 @@ Mix and bake."#;
     assert_eq!(orig_servings_value.as_u64(), Some(4));
 
     // Scale to 8 servings (2x)
-    recipe.scale_to_servings(8, &Converter::default()).unwrap();
+    recipe
+        .scale_to_servings(8.0, &Converter::default())
+        .unwrap();
 
     // Check that servings in metadata were updated
     let scaled_servings_value = recipe
         .metadata
         .get(cooklang::metadata::StdKey::Servings)
         .unwrap();
-    assert_eq!(scaled_servings_value.as_u64(), Some(8));
+    assert_eq!(scaled_servings_value.as_f64(), Some(8.0));
 }
 
 #[test]
@@ -57,7 +59,7 @@ fn test_scale_by_factor_updates_servings_metadata() {
     // Handle both string and number formats
     match scaled_servings_value {
         serde_yaml::Value::String(s) => assert_eq!(s, "6"),
-        serde_yaml::Value::Number(n) => assert_eq!(n.as_u64(), Some(6)),
+        serde_yaml::Value::Number(n) => assert_eq!(n.as_f64(), Some(6.0)),
         _ => panic!("Unexpected servings value type"),
     }
 }
@@ -93,7 +95,7 @@ fn test_scale_with_fractional_servings() {
     let parser = CooklangParser::new(Extensions::all(), Converter::default());
     let mut recipe = parser.parse(input).unwrap_output();
 
-    // Scale by factor that results in fractional servings (3 * 1.5 = 4.5, should round to 5)
+    // Scale by factor that results in fractional servings (3 * 1.5 = 4.5)
     recipe.scale(1.5, &Converter::default());
 
     let scaled_servings_value = recipe
@@ -102,8 +104,8 @@ fn test_scale_with_fractional_servings() {
         .unwrap();
     // Handle both string and number formats
     match scaled_servings_value {
-        serde_yaml::Value::String(s) => assert_eq!(s, "5"),
-        serde_yaml::Value::Number(n) => assert_eq!(n.as_u64(), Some(5)),
+        serde_yaml::Value::String(s) => assert_eq!(s, "4.5"),
+        serde_yaml::Value::Number(n) => assert_eq!(n.as_f64(), Some(4.5)),
         _ => panic!("Unexpected servings value type"),
     }
 }
@@ -156,7 +158,7 @@ servings: "serves 4 people"
     );
 
     // scale_to_servings should fail since "serves 4 people" is not parsed as a number
-    let result = recipe.scale_to_servings(8, &Converter::default());
+    let result = recipe.scale_to_servings(8.0, &Converter::default());
     assert!(result.is_err());
 
     // Recipe should remain unchanged
@@ -183,10 +185,10 @@ servings: "4"
     // Should parse "4" as Servings::Number(4)
     let servings = recipe.metadata.servings();
     assert!(servings.is_some());
-    assert_eq!(servings.as_ref().and_then(|s| s.as_number()), Some(4));
+    assert_eq!(servings.as_ref().and_then(|s| s.as_number()), Some(4.0));
 
     // scale_to_servings should succeed
-    let result = recipe.scale_to_servings(8, &Converter::default());
+    let result = recipe.scale_to_servings(8.0, &Converter::default());
     assert!(result.is_ok());
 
     // Recipe should be scaled from 4 to 8 (factor of 2)
@@ -217,7 +219,7 @@ servings: "varies"
     assert_eq!(servings.as_ref().and_then(|s| s.as_text()), Some("varies"));
 
     // scale_to_servings should fail when servings can't be parsed to number
-    let result = recipe.scale_to_servings(8, &Converter::default());
+    let result = recipe.scale_to_servings(8.0, &Converter::default());
 
     // Check that it returns an error
     assert!(result.is_err());

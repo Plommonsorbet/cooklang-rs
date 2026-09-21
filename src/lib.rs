@@ -88,6 +88,7 @@ pub mod shopping_list;
 pub mod span;
 pub mod text;
 
+mod float;
 mod lexer;
 
 use bitflags::bitflags;

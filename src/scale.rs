@@ -1,5 +1,6 @@
 //! Support for recipe scaling
 
+use crate::metadata::round_servings;
 use crate::{convert::Converter, quantity::Value, Quantity, Recipe};
 use thiserror::Error;
 
@@ -34,7 +35,7 @@ impl Recipe {
         // Update metadata with new servings (only if numeric)
         if let Some(current_servings) = self.metadata.servings() {
             if let Some(base) = current_servings.as_number() {
-                let new_servings = (base as f64 * factor).round() as u32;
+                let new_servings = round_servings(base * factor);
                 if let Some(servings_value) =
                     self.metadata.get_mut(crate::metadata::StdKey::Servings)
                 {
@@ -73,7 +74,7 @@ impl Recipe {
     /// Returns an error if the recipe doesn't have a valid numeric servings value.
     pub fn scale_to_servings(
         &mut self,
-        target: u32,
+        target: f64,
         converter: &Converter,
     ) -> Result<(), ScaleError> {
         let current_servings = self
@@ -125,11 +126,7 @@ impl Recipe {
         converter: &Converter,
     ) -> Result<(), ScaleError> {
         match target_unit {
-            Some("servings") | Some("serving") => {
-                // Scale by servings - convert f64 to u32
-                let servings = target_value.round() as u32;
-                self.scale_to_servings(servings, converter)
-            }
+            Some("servings") | Some("serving") => self.scale_to_servings(target_value, converter),
             Some(unit) => {
                 // Scale by yield with the specified unit
                 self.scale_to_yield(target_value, unit, converter)
