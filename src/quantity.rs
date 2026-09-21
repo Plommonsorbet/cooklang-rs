@@ -569,6 +569,58 @@ impl GroupedQuantity {
         debug_assert_eq!(len, v.len(), "misscalculated groupedquantity len");
         v
     }
+
+    /// Compares two groups quantity by quantity with [`Quantity::equals`]
+    ///
+    /// So groups with the same quantities written with different units, like
+    /// `3 dl` and `300 ml`, are equal.
+    ///
+    /// Note that the groups are compared as they are, not as they would be
+    /// after adding all their quantities together: a group with `1 l` and
+    /// `1 bunch` is not equal to one with `500 ml`, `500 ml` and `1 bunch`,
+    /// because the two volumes are stored separately in the second one only if
+    /// they could not be added.
+    pub fn equals(&self, other: &Self, converter: &Converter) -> bool {
+        let eq = |a: &Option<Quantity>, b: &Option<Quantity>| match (a, b) {
+            (Some(a), Some(b)) => a.equals(b, converter),
+            (None, None) => true,
+            _ => false,
+        };
+
+        eq(&self.no_unit, &other.no_unit)
+            && self
+                .known
+                .values()
+                .zip(other.known.values())
+                .all(|(a, b)| eq(a, b))
+            && self.unknown.len() == other.unknown.len()
+            && self.unknown.iter().all(|(unit, a)| {
+                other
+                    .unknown
+                    .get(unit)
+                    .is_some_and(|b| a.equals(b, converter))
+            })
+            // the order of the quantities that could not be added carries no
+            // meaning, so they are compared as a set
+            && unordered_equals(&self.other, &other.other, converter)
+    }
+}
+
+fn unordered_equals(a: &[Quantity], b: &[Quantity], converter: &Converter) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut matched = vec![false; b.len()];
+    a.iter().all(|qa| {
+        let pair = (0..b.len()).find(|&i| !matched[i] && qa.equals(&b[i], converter));
+        match pair {
+            Some(i) => {
+                matched[i] = true;
+                true
+            }
+            None => false,
+        }
+    })
 }
 
 impl Display for GroupedQuantity {
@@ -860,5 +912,49 @@ mod tests {
         };
         assert!(range(1.0, 2.0, "l").equals(&range(1000.0, 2000.0, "ml"), &converter));
         assert!(!range(1.0, 2.0, "l").equals(&range(1000.0, 3000.0, "ml"), &converter));
+    }
+
+    #[test]
+    fn compare_grouped_quantities() {
+        let converter = Converter::bundled();
+        let group = |quantities: &[&str]| {
+            let mut g = GroupedQuantity::empty();
+            for q in quantities {
+                g.add(&qty(q), &converter);
+            }
+            g
+        };
+        let eq = |a: &[&str], b: &[&str]| group(a).equals(&group(b), &converter);
+
+        assert!(eq(&[], &[]));
+        assert!(!eq(&[], &["1%l"]));
+
+        // added together first, then compared with different units
+        assert!(eq(&["3%dl", "2%dl"], &["500%ml"]));
+        assert!(!eq(&["3%dl", "2%dl"], &["400%ml"]));
+
+        // every kind of quantity has to match
+        assert!(eq(
+            &["1%kg", "1%l", "2%bunch", "3"],
+            &["1000%g", "1000%ml", "2%bunch", "3"]
+        ));
+        assert!(!eq(&["1%kg", "1%l"], &["1%kg"]));
+        assert!(!eq(&["2%bunch"], &["2%clove"]));
+        assert!(!eq(&["2%bunch"], &["3%bunch"]));
+        assert!(!eq(&["3"], &["4"]));
+        // same value, but one has a unit and the other doesn't
+        assert!(!eq(&["2"], &["2%l"]));
+
+        // quantities that can't be added keep no meaningful order
+        let text = |t: &str| Quantity::new(Value::Text(t.to_string()), None);
+        let mut a = GroupedQuantity::empty();
+        a.add(&text("some"), &converter);
+        a.add(&text("a lot"), &converter);
+        let mut b = GroupedQuantity::empty();
+        b.add(&text("a lot"), &converter);
+        b.add(&text("some"), &converter);
+        assert!(a.equals(&b, &converter));
+        b.add(&text("some"), &converter);
+        assert!(!a.equals(&b, &converter));
     }
 }
