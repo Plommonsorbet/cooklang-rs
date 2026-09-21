@@ -848,15 +848,24 @@ mod tests {
     }
 
     fn qty(q: &str) -> Quantity {
+        let (value, unit) = match q.split_once("%") {
+            Some((value, unit)) => (value, Some(unit.to_string())),
+            None => (q, None),
+        };
         let parts: Vec<&str> = q.splitn(2, "%").collect();
 
-        let (value, unit) = match parts.len() {
-            2 => (parts[0].parse::<f64>().unwrap(), Some(parts[1].to_string())),
-            1 => (parts[0].parse::<f64>().unwrap(), None),
-            _ => unreachable!(),
+        let value = match value.parse::<f64>() {
+            Ok(n) => n.into(),
+            Err(_) => Value::Text(value.to_string()),
         };
-
-        Quantity::new(value.into(), unit)
+        Quantity::new(value, unit)
+    }
+    fn grouped_qty(quantities: &[&str], converter: &Converter) -> GroupedQuantity {
+        let mut g = GroupedQuantity::empty();
+        for q in quantities {
+            g.add(&qty(q), &converter);
+        }
+        g
     }
 
     #[test]
@@ -917,14 +926,8 @@ mod tests {
     #[test]
     fn compare_grouped_quantities() {
         let converter = Converter::bundled();
-        let group = |quantities: &[&str]| {
-            let mut g = GroupedQuantity::empty();
-            for q in quantities {
-                g.add(&qty(q), &converter);
-            }
-            g
-        };
-        let eq = |a: &[&str], b: &[&str]| group(a).equals(&group(b), &converter);
+        let grouped_qty = |quantities: &[&str]| grouped_qty(quantities, &converter);
+        let eq = |a: &[&str], b: &[&str]| grouped_qty(a).equals(&grouped_qty(b), &converter);
 
         assert!(eq(&[], &[]));
         assert!(!eq(&[], &["1%l"]));
@@ -945,16 +948,7 @@ mod tests {
         // same value, but one has a unit and the other doesn't
         assert!(!eq(&["2"], &["2%l"]));
 
-        // quantities that can't be added keep no meaningful order
-        let text = |t: &str| Quantity::new(Value::Text(t.to_string()), None);
-        let mut a = GroupedQuantity::empty();
-        a.add(&text("some"), &converter);
-        a.add(&text("a lot"), &converter);
-        let mut b = GroupedQuantity::empty();
-        b.add(&text("a lot"), &converter);
-        b.add(&text("some"), &converter);
-        assert!(a.equals(&b, &converter));
-        b.add(&text("some"), &converter);
-        assert!(!a.equals(&b, &converter));
+        assert!(eq(&["some", "a lot"], &["a lot", "some"]));
+        assert!(!eq(&["some", "a lot"], &["a lot", "some", "some"]));
     }
 }
