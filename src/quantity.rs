@@ -675,16 +675,19 @@ impl GroupedQuantity {
     /// Subtract another group from this one
     ///
     /// Every quantity of `other` is subtracted with
-    /// [`GroupedQuantity::try_sub`]. The ones that can't be subtracted are
-    /// returned, the rest are applied.
-    pub fn subtract(&mut self, other: &Self, converter: &Converter) -> Vec<Quantity> {
-        let mut not_subtracted = Vec::new();
+    /// [`GroupedQuantity::try_sub`], all of them or none: the first one that
+    /// can't be subtracted returns its error, leaving the group untouched.
+    pub fn try_sub_group(
+        &mut self,
+        other: &Self,
+        converter: &Converter,
+    ) -> Result<(), GroupedQuantitySubError> {
+        let mut subtracted = self.clone();
         for q in other.iter() {
-            if self.try_sub(q, converter).is_err() {
-                not_subtracted.push(q.clone());
-            }
+            subtracted.try_sub(q, converter)?;
         }
-        not_subtracted
+        *self = subtracted;
+        Ok(())
     }
 
     /// Calls [`Quantity::fit`] on all possible underlying units
@@ -1208,11 +1211,21 @@ mod tests {
         }
 
         {
-            //// subtracting a whole group returns what could not be subtracted
+            //// a whole group is subtracted at once
+            let mut g = group(&["1%l", "2%bunch", "3"]);
+            assert!(g
+                .try_sub_group(&group(&["500%ml", "1%bunch"]), &converter)
+                .is_ok());
+            assert!(eq(g, group(&["0.5%l", "1%bunch", "3"])));
+        }
+
+        {
+            //// or not at all, even when some of its quantities could be
             let mut g = group(&["1%l", "2%bunch"]);
-            let left = g.subtract(&group(&["500%ml", "1%clove"]), &converter);
-            assert!(g.equals(&group(&["0.5%l", "2%bunch"]), &converter));
-            assert_eq!(left, vec![qty("1%clove")]);
+            assert!(g
+                .try_sub_group(&group(&["500%ml", "1%clove"]), &converter)
+                .is_err());
+            assert!(eq(g, group(&["1%l", "2%bunch"])));
         }
     }
 }
