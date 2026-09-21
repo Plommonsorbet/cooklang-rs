@@ -9,7 +9,10 @@ use thiserror::Error;
 #[cfg(feature = "ts")]
 use tsify::Tsify;
 
-use crate::convert::{ConvertError, Converter, PhysicalQuantity, Unit};
+use crate::{
+    convert::{ConvertError, ConvertTo, Converter, PhysicalQuantity, Unit},
+    float::equal_f64_relative,
+};
 
 /// A quantity used in components
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -30,31 +33,39 @@ impl PartialEq for Quantity {
 
 /// Compares two quantities that may be written with different units
 ///
-/// Both are converted to the base unit of their physical quantity, so
-/// `3 dl` equals `300 ml`. The values are then compared allowing the error
-/// their unit tolerates, see [`Converter::float_eq`].
+/// Both are converted to the base unit of the converter's default system, so
+/// `3 dl` equals `300 ml` and, across systems, `1 cup` equals `236.59 ml`.
+///
+/// The values are then compared allowing the error the units tolerate: the
+/// loosest of [`Converter::float_tolerance`] for the two units as they are
+/// written, because a value written as a fraction already carries that error.
 ///
 /// Quantities that can't be converted, like text values, quantities without a
 /// unit or with a unit unknown to the `converter`, are compared as written.
 pub fn quantity_equals(converter: &Converter, a: &Quantity, b: &Quantity) -> bool {
-    let mut na = a.clone();
-    let mut nb = b.clone();
+    // a common system, otherwise each one would go to the base unit of its own
+    // and units of different systems would never be comparable
+    let to = ConvertTo::Base(converter.default_system());
+    let base = |q: &Quantity| {
+        let mut q = q.clone();
+        q.convert(to, converter).ok()?;
+        Some(q)
+    };
 
-    // if any of them can't be converted, compare them as they are written
-    if na.to_base_unit(converter).is_err() || nb.to_base_unit(converter).is_err() {
-        return a == b;
+    // the tolerance of the units as written, the conversion may lose it
+    let tolerance = converter
+        .float_tolerance(a.unit_info(converter).as_deref())
+        .max(converter.float_tolerance(b.unit_info(converter).as_deref()));
+
+    match (base(a), base(b)) {
+        (Some(na), Some(nb)) => na.unit == nb.unit && value_equals(&na.value, &nb.value, tolerance),
+        // at least one of them can't be converted, compare them as written
+        _ => a.unit == b.unit && value_equals(&a.value, &b.value, tolerance),
     }
-
-    if na.unit != nb.unit {
-        return false;
-    }
-
-    let unit = na.unit_info(converter);
-    value_equals(converter, unit.as_deref(), &na.value, &nb.value)
 }
 
-fn value_equals(converter: &Converter, unit: Option<&Unit>, a: &Value, b: &Value) -> bool {
-    let eq = |a: Number, b: Number| converter.float_eq(unit, a.value(), b.value());
+fn value_equals(a: &Value, b: &Value, tolerance: f64) -> bool {
+    let eq = |a: Number, b: Number| equal_f64_relative(a.value(), b.value(), tolerance);
     match (a, b) {
         (Value::Number(a), Value::Number(b)) => eq(*a, *b),
         (Value::Range { start: sa, end: ea }, Value::Range { start: sb, end: eb }) => {
@@ -805,9 +816,17 @@ mod tests {
         assert!(!eq("3%dl", "2%dl"));
         assert!(!eq("1%kg", "999%g"));
 
-        // different physical quantity or system
-        assert!(!eq("1%l", "1%kg"));
+        // across systems
+        assert!(eq("236.588236%ml", "1%cup"));
+        assert!(eq("453.59237%g", "1%lb"));
         assert!(!eq("1%l", "1%cup"));
+        // the loosest of the two units sets the tolerance, cup allows 5%
+        assert!(eq("240%ml", "1%cup"));
+        assert!(!eq("260%ml", "1%cup"));
+
+        // different physical quantity
+        assert!(!eq("1%l", "1%kg"));
+        assert!(!eq("1%l", "1%h"));
 
         // unknown units are compared as written
         assert!(eq("1%bunch", "1%bunch"));
