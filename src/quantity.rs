@@ -9,7 +9,7 @@ use thiserror::Error;
 #[cfg(feature = "ts")]
 use tsify::Tsify;
 
-use crate::convert::{ConvertError, ConvertTo, Converter, PhysicalQuantity, System, Unit};
+use crate::convert::{ConvertError, Converter, PhysicalQuantity, Unit};
 
 /// A quantity used in components
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -28,13 +28,41 @@ impl PartialEq for Quantity {
     }
 }
 
-fn quantity_equals(converter: &Converter, a: &Quantity, b: &Quantity) -> bool {
+/// Compares two quantities that may be written with different units
+///
+/// Both are converted to the base unit of their physical quantity, so
+/// `3 dl` equals `300 ml`. The values are then compared allowing the error
+/// their unit tolerates, see [`Converter::float_eq`].
+///
+/// Quantities that can't be converted, like text values, quantities without a
+/// unit or with a unit unknown to the `converter`, are compared as written.
+pub fn quantity_equals(converter: &Converter, a: &Quantity, b: &Quantity) -> bool {
     let mut na = a.clone();
     let mut nb = b.clone();
-    na.convert(ConvertTo::SameSystem, &converter).unwrap();
-    nb.convert(ConvertTo::SameSystem, &converter).unwrap();
 
-    na == nb
+    // if any of them can't be converted, compare them as they are written
+    if na.to_base_unit(converter).is_err() || nb.to_base_unit(converter).is_err() {
+        return a == b;
+    }
+
+    if na.unit != nb.unit {
+        return false;
+    }
+
+    let unit = na.unit_info(converter);
+    value_equals(converter, unit.as_deref(), &na.value, &nb.value)
+}
+
+fn value_equals(converter: &Converter, unit: Option<&Unit>, a: &Value, b: &Value) -> bool {
+    let eq = |a: Number, b: Number| converter.float_eq(unit, a.value(), b.value());
+    match (a, b) {
+        (Value::Number(a), Value::Number(b)) => eq(*a, *b),
+        (Value::Range { start: sa, end: ea }, Value::Range { start: sb, end: eb }) => {
+            eq(*sa, *sb) && eq(*ea, *eb)
+        }
+        (Value::Text(a), Value::Text(b)) => a == b,
+        _ => false,
+    }
 }
 
 /// Base value
@@ -768,9 +796,55 @@ mod tests {
     #[test]
     fn compare_quantities() {
         let converter = Converter::bundled();
-        dbg!(&qty("2%dl").unit_info(&converter));
-        //quantity_equals(&converter, &qty("3%dl"), &qty("2%dl"));
-        //quantity_equals(&converter, &qty("200%ml"), &qty("2%dl"));
-        //assert!());
+        let eq = |a: &str, b: &str| quantity_equals(&converter, &qty(a), &qty(b));
+
+        // same unit family
+        assert!(eq("3%dl", "300%ml"));
+        assert!(eq("3%dl", "0.3%l"));
+        assert!(eq("1%kg", "1000%g"));
+        assert!(!eq("3%dl", "2%dl"));
+        assert!(!eq("1%kg", "999%g"));
+
+        // different physical quantity or system
+        assert!(!eq("1%l", "1%kg"));
+        assert!(!eq("1%l", "1%cup"));
+
+        // unknown units are compared as written
+        assert!(eq("1%bunch", "1%bunch"));
+        assert!(!eq("1%bunch", "1%clove"));
+        assert!(!eq("1%bunch", "1000%bunch"));
+
+        // no unit
+        assert!(eq("2", "2"));
+        assert!(!eq("2", "3"));
+        assert!(!eq("2", "2%ml"));
+
+        // fractions enabled for imperial, values within the accuracy are equal
+        assert!(eq("2%tsp", "2.05%tsp"));
+        assert!(!eq("2%tsp", "2.5%tsp"));
+
+        // text and ranges
+        let text = |t: &str| Quantity::new(Value::Text(t.to_string()), None);
+        assert!(quantity_equals(&converter, &text("some"), &text("some")));
+        assert!(!quantity_equals(&converter, &text("some"), &text("a lot")));
+        let range = |start: f64, end: f64, unit: &str| {
+            Quantity::new(
+                Value::Range {
+                    start: start.into(),
+                    end: end.into(),
+                },
+                Some(unit.to_string()),
+            )
+        };
+        assert!(quantity_equals(
+            &converter,
+            &range(1.0, 2.0, "l"),
+            &range(1000.0, 2000.0, "ml")
+        ));
+        assert!(!quantity_equals(
+            &converter,
+            &range(1.0, 2.0, "l"),
+            &range(1000.0, 3000.0, "ml")
+        ));
     }
 }
