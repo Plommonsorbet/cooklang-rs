@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::{
+    float::equal_f64_relative,
     quantity::{Number, Quantity, Value},
     Recipe,
 };
@@ -189,6 +190,16 @@ impl Converter {
     /// Without a unit, or with a unit unknown to this converter, the default
     /// fractions configuration is used.
     pub fn float_eq(&self, unit: Option<&Unit>, a: f64, b: f64) -> bool {
+        equal_f64_relative(a, b, self.float_tolerance(unit))
+    }
+
+    /// Relative error allowed when comparing two values of a unit
+    ///
+    /// This is the tolerance [`Self::float_eq`] uses. It is the `accuracy` of
+    /// the unit's fractions configuration when fractions are enabled for it,
+    /// because a value written as a fraction already carries that error.
+    /// Otherwise it is only the error of converting values between units.
+    pub fn float_tolerance(&self, unit: Option<&Unit>) -> f64 {
         let cfg = unit
             .and_then(|u| {
                 let unit_id = self.unit_index.get_unit_id(u.symbol()).ok()?;
@@ -199,17 +210,11 @@ impl Converter {
             })
             .unwrap_or_default();
 
-        let tolerance = if cfg.enabled {
+        if cfg.enabled {
             cfg.accuracy as f64
         } else {
             CONVERSION_EPSILON
-        };
-
-        // covers equal values, zeros and infinities
-        if a == b {
-            return true;
         }
-        (a - b).abs() <= tolerance * a.abs().max(b.abs())
     }
 }
 
