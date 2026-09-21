@@ -31,51 +31,6 @@ impl PartialEq for Quantity {
     }
 }
 
-/// Compares two quantities that may be written with different units
-///
-/// Both are converted to the base unit of the converter's default system, so
-/// `3 dl` equals `300 ml` and, across systems, `1 cup` equals `236.59 ml`.
-///
-/// The values are then compared allowing the error the units tolerate: the
-/// loosest of [`Converter::float_tolerance`] for the two units as they are
-/// written, because a value written as a fraction already carries that error.
-///
-/// Quantities that can't be converted, like text values, quantities without a
-/// unit or with a unit unknown to the `converter`, are compared as written.
-pub fn quantity_equals(converter: &Converter, a: &Quantity, b: &Quantity) -> bool {
-    // a common system, otherwise each one would go to the base unit of its own
-    // and units of different systems would never be comparable
-    let to = ConvertTo::Base(converter.default_system());
-    let base = |q: &Quantity| {
-        let mut q = q.clone();
-        q.convert(to, converter).ok()?;
-        Some(q)
-    };
-
-    // the tolerance of the units as written, the conversion may lose it
-    let tolerance = converter
-        .float_tolerance(a.unit_info(converter).as_deref())
-        .max(converter.float_tolerance(b.unit_info(converter).as_deref()));
-
-    match (base(a), base(b)) {
-        (Some(na), Some(nb)) => na.unit == nb.unit && value_equals(&na.value, &nb.value, tolerance),
-        // at least one of them can't be converted, compare them as written
-        _ => a.unit == b.unit && value_equals(&a.value, &b.value, tolerance),
-    }
-}
-
-fn value_equals(a: &Value, b: &Value, tolerance: f64) -> bool {
-    let eq = |a: Number, b: Number| equal_f64_relative(a.value(), b.value(), tolerance);
-    match (a, b) {
-        (Value::Number(a), Value::Number(b)) => eq(*a, *b),
-        (Value::Range { start: sa, end: ea }, Value::Range { start: sb, end: eb }) => {
-            eq(*sa, *sb) && eq(*ea, *eb)
-        }
-        (Value::Text(a), Value::Text(b)) => a == b,
-        _ => false,
-    }
-}
-
 /// Base value
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[cfg_attr(feature = "ts", derive(Tsify))]
@@ -388,6 +343,54 @@ impl Quantity {
         let qty = Quantity::new(value, self.unit.clone());
 
         Ok(qty)
+    }
+
+    /// Compares two quantities that may be written with different units
+    ///
+    /// Unlike [`PartialEq`], which compares the quantities as written, both are
+    /// converted to the base unit of the converter's default system, so `3 dl`
+    /// equals `300 ml` and, across systems, `1 cup` equals `236.59 ml`.
+    ///
+    /// The values are then compared allowing the error the units tolerate: the
+    /// loosest of [`Converter::float_tolerance`] for the two units as they are
+    /// written, because a value written as a fraction already carries that
+    /// error.
+    ///
+    /// Quantities that can't be converted, like text values, quantities without
+    /// a unit or with a unit unknown to the `converter`, are compared as
+    /// written.
+    pub fn equals(&self, other: &Self, converter: &Converter) -> bool {
+        // a common system, otherwise each one would go to the base unit of its
+        // own and units of different systems would never be comparable
+        let to = ConvertTo::Base(converter.default_system());
+        let base = |q: &Quantity| {
+            let mut q = q.clone();
+            q.convert(to, converter).ok()?;
+            Some(q)
+        };
+
+        // the tolerance of the units as written, the conversion may lose it
+        let tolerance = converter
+            .float_tolerance(self.unit_info(converter).as_deref())
+            .max(converter.float_tolerance(other.unit_info(converter).as_deref()));
+
+        match (base(self), base(other)) {
+            (Some(a), Some(b)) => a.unit == b.unit && value_equals(&a.value, &b.value, tolerance),
+            // at least one of them can't be converted, compare them as written
+            _ => self.unit == other.unit && value_equals(&self.value, &other.value, tolerance),
+        }
+    }
+}
+
+fn value_equals(a: &Value, b: &Value, tolerance: f64) -> bool {
+    let eq = |a: Number, b: Number| equal_f64_relative(a.value(), b.value(), tolerance);
+    match (a, b) {
+        (Value::Number(a), Value::Number(b)) => eq(*a, *b),
+        (Value::Range { start: sa, end: ea }, Value::Range { start: sb, end: eb }) => {
+            eq(*sa, *sb) && eq(*ea, *eb)
+        }
+        (Value::Text(a), Value::Text(b)) => a == b,
+        _ => false,
     }
 }
 
@@ -807,7 +810,7 @@ mod tests {
     #[test]
     fn compare_quantities() {
         let converter = Converter::bundled();
-        let eq = |a: &str, b: &str| quantity_equals(&converter, &qty(a), &qty(b));
+        let eq = |a: &str, b: &str| qty(a).equals(&qty(b), &converter);
 
         // same unit family
         assert!(eq("3%dl", "300%ml"));
@@ -844,8 +847,8 @@ mod tests {
 
         // text and ranges
         let text = |t: &str| Quantity::new(Value::Text(t.to_string()), None);
-        assert!(quantity_equals(&converter, &text("some"), &text("some")));
-        assert!(!quantity_equals(&converter, &text("some"), &text("a lot")));
+        assert!(text("some").equals(&text("some"), &converter));
+        assert!(!text("some").equals(&text("a lot"), &converter));
         let range = |start: f64, end: f64, unit: &str| {
             Quantity::new(
                 Value::Range {
@@ -855,15 +858,7 @@ mod tests {
                 Some(unit.to_string()),
             )
         };
-        assert!(quantity_equals(
-            &converter,
-            &range(1.0, 2.0, "l"),
-            &range(1000.0, 2000.0, "ml")
-        ));
-        assert!(!quantity_equals(
-            &converter,
-            &range(1.0, 2.0, "l"),
-            &range(1000.0, 3000.0, "ml")
-        ));
+        assert!(range(1.0, 2.0, "l").equals(&range(1000.0, 2000.0, "ml"), &converter));
+        assert!(!range(1.0, 2.0, "l").equals(&range(1000.0, 3000.0, "ml"), &converter));
     }
 }
