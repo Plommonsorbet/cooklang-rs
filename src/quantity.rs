@@ -852,18 +852,26 @@ mod tests {
             Some((value, unit)) => (value, Some(unit.to_string())),
             None => (q, None),
         };
-        let parts: Vec<&str> = q.splitn(2, "%").collect();
 
-        let value = match value.parse::<f64>() {
-            Ok(n) => n.into(),
-            Err(_) => Value::Text(value.to_string()),
+        let number = |s: &str| s.parse::<f64>().ok().map(Number::from);
+        let range = || {
+            let (start, end) = value.split_once("-")?;
+            Some(Value::Range {
+                start: number(start)?,
+                end: number(end)?,
+            })
         };
+
+        let value = range()
+            .or_else(|| number(value).map(Value::Number))
+            .unwrap_or_else(|| Value::Text(value.to_string()));
+
         Quantity::new(value, unit)
     }
     fn grouped_qty(quantities: &[&str], converter: &Converter) -> GroupedQuantity {
         let mut g = GroupedQuantity::empty();
         for q in quantities {
-            g.add(&qty(q), &converter);
+            g.add(&qty(q), converter);
         }
         g
     }
@@ -909,17 +917,10 @@ mod tests {
         assert!(eq("some", "some"));
         assert!(!eq("some", "a lot"));
 
-        let range = |start: f64, end: f64, unit: &str| {
-            Quantity::new(
-                Value::Range {
-                    start: start.into(),
-                    end: end.into(),
-                },
-                Some(unit.to_string()),
-            )
-        };
-        assert!(range(1.0, 2.0, "l").equals(&range(1000.0, 2000.0, "ml"), &converter));
-        assert!(!range(1.0, 2.0, "l").equals(&range(1000.0, 3000.0, "ml"), &converter));
+        // ranges
+        assert!(eq("1-2%l", "1000-2000%ml"));
+        assert!(!eq("1-2%l", "1000-3000%ml"));
+        assert!(!eq("1-2%l", "1%l"));
     }
 
     #[test]
