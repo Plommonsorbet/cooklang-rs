@@ -64,7 +64,7 @@ impl Recipe {
             _ => false,
         };
 
-        self.metadata == other.metadata
+        self.metadata.equals(&other.metadata, converter)
             && self.sections == other.sections
             && self.ingredients.len() == other.ingredients.len()
             && self.cookware.len() == other.cookware.len()
@@ -673,34 +673,104 @@ mod tests {
             "@flour{200%g} and @butter{100%g}",
         ));
 
+        // unit conversion: 5 dl == 0.5 l, 5 min == 300 s
         assert!(eq(
             "Cook @water{5%dl} for ~{5%min}",
             "Cook @water{0.5%l} for ~{300%sec}",
         ));
 
         // different ingredient name is not equal
-        assert!(ne("@flour{200%g}", "@sugar{200%g}",));
+        assert!(ne("@flour{200%g}", "@sugar{200%g}"));
 
         // different quantity value is not equal
-        assert!(ne("@flour{200%g}", "@flour{100%g}",));
+        assert!(ne("@flour{200%g}", "@flour{100%g}"));
 
         // different number of ingredients is not equal
-        assert!(ne("@flour{200%g} and @butter{100%g}", "@flour{200%g}",));
+        assert!(ne("@flour{200%g} and @butter{100%g}", "@flour{200%g}"));
 
         // timer unit conversion: 1 h == 60 min
-        assert!(eq("Cook for ~{1%h}", "Cook for ~{60%min}",));
+        assert!(eq("Cook for ~{1%h}", "Cook for ~{60%min}"));
 
         // cookware without quantity is equal
-        assert!(eq("Use #pan{}", "Use #pan{}",));
+        assert!(eq("Use #pan{}", "Use #pan{}"));
+
+        // cookware without quantity is equal
+        assert!(ne("Use #pan{small}", "Use #pan{big}"));
 
         // different metadata is not equal
         assert!(ne(
-            ">> title: Pasta\n@flour{200%g}",
-            ">> title: Pizza\n@flour{200%g}",
+            indoc! {"
+                >> title: Pasta
+                @flour{200%g}
+            "},
+            indoc! {"
+                >> title: Pizza
+                @flour{200%g}
+            "},
         ));
 
-        // inline quantity conversion: 200 F ~= 200 F (same), but 100 C != 200 F
-        assert!(eq("Bake at 200ºC", "Bake at 200ºC",));
+        // inline quantity: same value and unit is equal
+        assert!(eq("Bake at 200ºC", "Bake at 200ºC"));
+
+        // serves is an alias for servings
+        assert!(eq(
+            indoc! {"
+                >> serves: 4
+                @flour{200%g}
+            "},
+            indoc! {"
+                >> servings: 4
+                @flour{200%g}
+            "},
+        ));
+
+        // different servings count is not equal
+        assert!(ne(
+            indoc! {"
+                >> servings: 4
+                @flour{200%g}
+            "},
+            indoc! {"
+                >> servings: 8
+                @flour{200%g}
+            "},
+        ));
+
+        // yield is a quantity: 500%g == 0.5%kg (unit conversion)
+        assert!(eq(
+            indoc! {"
+                >> yield: 500%g
+                @flour{200%g}
+            "},
+            indoc! {"
+                >> yield: 0.5%kg
+                @flour{200%g}
+            "},
+        ));
+
+        // yield with different amounts is not equal
+        assert!(ne(
+            indoc! {"
+                >> yield: 500%g
+                @flour{200%g}
+            "},
+            indoc! {"
+                >> yield: 1000%g
+                @flour{200%g}
+            "},
+        ));
+
+        // yield and servings are distinct concepts
+        assert!(ne(
+            indoc! {"
+                >> yield: 500%g
+                @flour{200%g}
+            "},
+            indoc! {"
+                >> servings: 4
+                @flour{200%g}
+            "},
+        ));
     }
     #[test]
     fn sibling_in_same_directory() {
