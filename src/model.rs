@@ -584,19 +584,21 @@ pub struct Timer {
 #[cfg(test)]
 mod tests {
     use super::RecipeReference;
+    use crate::{Converter, CooklangParser, Extensions};
 
     use relative_path::RelativePathBuf;
+    use std::sync::LazyLock;
+
+    pub static PARSER: LazyLock<CooklangParser> =
+        LazyLock::new(|| CooklangParser::new(Extensions::all(), Converter::default()));
 
     #[track_caller]
     fn rel(reference: &str, other: &str) -> String {
-        RecipeReference::from(reference)
-            .unwrap()
-            .relative_to(&RecipeReference::from(other).unwrap())
-            .to_string()
+        rref(reference).relative_to(&rref(other)).to_string()
     }
 
     #[track_caller]
-    fn rref(p: &str) -> String {
+    fn rref(p: &str) -> RecipeReference {
         RecipeReference::from(p).unwrap()
     }
 
@@ -654,7 +656,9 @@ mod tests {
     #[test]
     fn preserves_name_of_the_resolved_reference() {
         assert_eq!(
-            rel("../sauces/tomato", "./recipes/pasta/spaghetti").name(),
+            rref("../sauces/tomato")
+                .relative_to(&rref("./recipes/pasta/spaghetti"))
+                .name(),
             "tomato"
         );
     }
@@ -662,7 +666,7 @@ mod tests {
     #[test]
     fn bare_path_is_prefixed_with_dot_slash() {
         assert_eq!(rref("spaghetti").to_string(), "./spaghetti");
-        assert_eq!(rref("pasta/spaghetti"), "./pasta/spaghetti");
+        assert_eq!(rref("pasta/spaghetti").to_string(), "./pasta/spaghetti");
     }
 
     #[test]
