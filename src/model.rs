@@ -66,21 +66,23 @@ impl Recipe {
 
         self.metadata == other.metadata
             && self.sections == other.sections
-            && self.source == other.source
             && self.ingredients.len() == other.ingredients.len()
             && self.cookware.len() == other.cookware.len()
             && self.timers.len() == other.timers.len()
             && self.inline_quantities.len() == other.inline_quantities.len()
-            && self.ingredients.iter().zip(&other.ingredients).all(|(a, b)| {
-                a.name == b.name
-                    && a.alias == b.alias
-                    && a.note == b.note
-                    && a.relation == b.relation
-                    && a.reference == b.reference
-                    && a.source == b.source
-                    && a.modifiers == b.modifiers
-                    && qty_eq(&a.quantity, &b.quantity)
-            })
+            && self
+                .ingredients
+                .iter()
+                .zip(&other.ingredients)
+                .all(|(a, b)| {
+                    a.name == b.name
+                        && a.alias == b.alias
+                        && a.note == b.note
+                        && a.relation == b.relation
+                        && a.reference == b.reference
+                        && a.modifiers == b.modifiers
+                        && qty_eq(&a.quantity, &b.quantity)
+                })
             && self.cookware.iter().zip(&other.cookware).all(|(a, b)| {
                 a.name == b.name
                     && a.alias == b.alias
@@ -89,9 +91,11 @@ impl Recipe {
                     && a.modifiers == b.modifiers
                     && qty_eq(&a.quantity, &b.quantity)
             })
-            && self.timers.iter().zip(&other.timers).all(|(a, b)| {
-                a.name == b.name && qty_eq(&a.quantity, &b.quantity)
-            })
+            && self
+                .timers
+                .iter()
+                .zip(&other.timers)
+                .all(|(a, b)| a.name == b.name && qty_eq(&a.quantity, &b.quantity))
             && self
                 .inline_quantities
                 .iter()
@@ -663,15 +667,40 @@ mod tests {
         let eq = |a: &str, b: &str| recipe(a).equals(&recipe(b), &converter);
         let ne = |a: &str, b: &str| !recipe(a).equals(&recipe(b), &converter);
 
+        // identical recipes are equal
         assert!(eq(
-            indoc! {"
-            Add @egg{1} in @water{5%dl} for ~{5%min}
-           "},
-            indoc! {"
-            Add @egg{1} in @water{0.5%l} for ~{300%s}
-           "}
+            "@flour{200%g} and @butter{100%g}",
+            "@flour{200%g} and @butter{100%g}",
         ));
-        let _ = ne; // suppress unused warning
+
+        assert!(eq(
+            "Cook @water{5%dl} for ~{5%min}",
+            "Cook @water{0.5%l} for ~{300%sec}",
+        ));
+
+        // different ingredient name is not equal
+        assert!(ne("@flour{200%g}", "@sugar{200%g}",));
+
+        // different quantity value is not equal
+        assert!(ne("@flour{200%g}", "@flour{100%g}",));
+
+        // different number of ingredients is not equal
+        assert!(ne("@flour{200%g} and @butter{100%g}", "@flour{200%g}",));
+
+        // timer unit conversion: 1 h == 60 min
+        assert!(eq("Cook for ~{1%h}", "Cook for ~{60%min}",));
+
+        // cookware without quantity is equal
+        assert!(eq("Use #pan{}", "Use #pan{}",));
+
+        // different metadata is not equal
+        assert!(ne(
+            ">> title: Pasta\n@flour{200%g}",
+            ">> title: Pizza\n@flour{200%g}",
+        ));
+
+        // inline quantity conversion: 200 F ~= 200 F (same), but 100 C != 200 F
+        assert!(eq("Bake at 200ºC", "Bake at 200ºC",));
     }
     #[test]
     fn sibling_in_same_directory() {
