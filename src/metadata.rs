@@ -11,7 +11,8 @@ use tsify::Tsify;
 
 use crate::{
     convert::{ConvertError, ConvertTo, ConvertUnit, ConvertValue, PhysicalQuantity, UnknownUnit},
-    Converter,
+    quantity::Value,
+    Converter, Quantity,
 };
 
 const SERVINGS_PRECISION: u32 = 1;
@@ -64,6 +65,7 @@ pub enum StdKey {
     PrepTime,
     CookTime,
     Servings,
+    Yield,
     Difficulty,
     Cuisine,
     Diet,
@@ -92,7 +94,8 @@ impl FromStr for StdKey {
             "tags" | "tag" => Self::Tags,
             "author" => Self::Author,
             "source" => Self::Source,
-            "servings" | "serves" | "yield" => Self::Servings,
+            "servings" | "serves" => Self::Servings,
+            "yield" => Self::Yield,
             "course" | "category" => Self::Course,
             "locale" => Self::Locale,
             "time" | "duration" | "time required" => Self::Time,
@@ -117,6 +120,7 @@ impl AsRef<str> for StdKey {
             StdKey::Author => "author",
             StdKey::Source => "source",
             StdKey::Servings => "servings",
+            StdKey::Yield => "yield",
             StdKey::Course => "course",
             StdKey::Locale => "locale",
             StdKey::Time => "time",
@@ -216,9 +220,19 @@ impl Metadata {
         }
     }
 
-    /// Servings the recipe is made for
+    /// Servings the recipe is made for (a plain count, e.g. `servings: 4`)
+    ///
+    /// Recognises the `servings` and `serves` key aliases.
     pub fn servings(&self) -> Option<Servings> {
-        self.get(StdKey::Servings).and_then(|v| v.as_servings())
+        get_by_std_key(&self.map, StdKey::Servings).and_then(|v| v.as_servings())
+    }
+
+    /// Yield of the recipe as a [`Quantity`] (e.g. `yield: 500%g`)
+    ///
+    /// The value is stored as a `value%unit` string (unit is optional).
+    /// Returns `None` if the key is absent or cannot be parsed.
+    pub fn yield_quantity(&self) -> Option<Quantity> {
+        get_by_std_key(&self.map, StdKey::Yield).and_then(parse_yield_qty)
     }
 
     /// Recipe locale
@@ -226,6 +240,84 @@ impl Metadata {
     pub fn locale(&self) -> Option<(&str, Option<&str>)> {
         self.get(StdKey::Locale)
             .and_then(CooklangValueExt::as_locale)
+    }
+
+    /// Compares two metadata structs with semantic equality for standard keys.
+    ///
+    /// Unlike [`PartialEq`], key aliases (e.g. `serves`/`servings`) resolve to
+    /// the same key, numeric servings are compared with tolerance, and yield is
+    /// compared as a unit-aware [`Quantity`].
+    pub fn equals(&self, other: &Self, converter: &Converter) -> bool {
+        let servings_eq = match (self.servings(), other.servings()) {
+            (Some(a), Some(b)) => a == b,
+            (None, None) => true,
+            _ => false,
+        };
+
+        let yield_eq = match (self.yield_quantity(), other.yield_quantity()) {
+            (Some(a), Some(b)) => a.equals(&b, converter),
+            (None, None) => true,
+            _ => false,
+        };
+
+        let simple_std_eq = [
+            StdKey::Title,
+            StdKey::Description,
+            StdKey::Tags,
+            StdKey::Author,
+            StdKey::Source,
+            StdKey::Course,
+            StdKey::Time,
+            StdKey::PrepTime,
+            StdKey::CookTime,
+            StdKey::Difficulty,
+            StdKey::Cuisine,
+            StdKey::Diet,
+            StdKey::Images,
+            StdKey::Locale,
+        ]
+        .iter()
+        .all(|k| get_by_std_key(&self.map, *k) == get_by_std_key(&other.map, *k));
+
+        let a_custom: Vec<_> = self.map_filtered().collect();
+        let b_custom: Vec<_> = other.map_filtered().collect();
+
+        servings_eq && yield_eq && simple_std_eq && a_custom == b_custom
+    }
+}
+
+/// Look up a value in a mapping by any alias of the given [`StdKey`].
+fn get_by_std_key<'a>(
+    m: &'a serde_yaml::Mapping,
+    sk: StdKey,
+) -> Option<&'a serde_yaml::Value> {
+    m.iter()
+        .find(|(k, _)| {
+            k.as_str()
+                .and_then(|s| StdKey::from_str(s).ok())
+                .is_some_and(|found| found == sk)
+        })
+        .map(|(_, v)| v)
+}
+
+/// Parse a YAML value stored as a yield quantity.
+///
+/// Accepts `"500%g"` (value + unit) or a plain YAML number/string like `"4"` (no unit).
+fn parse_yield_qty(v: &serde_yaml::Value) -> Option<Quantity> {
+    match v {
+        serde_yaml::Value::Number(n) => {
+            Some(Quantity::new(Value::from(n.as_f64()?), None))
+        }
+        serde_yaml::Value::String(s) => {
+            if let Some((val_str, unit)) = s.split_once('%') {
+                let val: f64 = val_str.trim().parse().ok()?;
+                Some(Quantity::new(Value::from(val), Some(unit.trim().to_string())))
+            } else {
+                let val: f64 = s.trim().parse().ok()?;
+                Some(Quantity::new(Value::from(val), None))
+            }
+        }
+        _ => None,
     }
 }
 
@@ -513,6 +605,12 @@ pub(crate) fn check_std_entry(
             value
                 .as_u32()
                 .ok_or(MetadataError::expect_type(MetaType::Number, value))?;
+        }
+        StdKey::Yield => {
+            // accepts "500%g", "500", or a plain YAML number
+            if parse_yield_qty(value).is_none() {
+                return Err(MetadataError::expect_type(MetaType::String, value));
+            }
         }
         StdKey::Tags => {
             value_as_tags(value)?;
@@ -950,6 +1048,7 @@ mod tests {
         t(StdKey::Author);
         t(StdKey::Source);
         t(StdKey::Servings);
+        t(StdKey::Yield);
         t(StdKey::Course);
         t(StdKey::Locale);
         t(StdKey::Time);
