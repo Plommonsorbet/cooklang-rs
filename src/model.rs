@@ -52,6 +52,54 @@ pub struct Recipe {
     pub source: Option<RecipeReference>,
 }
 
+impl Recipe {
+    /// Compares two recipes using unit-aware quantity comparison.
+    ///
+    /// Unlike [`PartialEq`], quantities are compared with [`Quantity::equals`],
+    /// so `5 dl` equals `0.5 l` and `5 min` equals `300 s`.
+    pub fn equals(&self, other: &Self, converter: &Converter) -> bool {
+        let qty_eq = |a: &Option<Quantity>, b: &Option<Quantity>| match (a, b) {
+            (Some(a), Some(b)) => a.equals(b, converter),
+            (None, None) => true,
+            _ => false,
+        };
+
+        self.metadata == other.metadata
+            && self.sections == other.sections
+            && self.source == other.source
+            && self.ingredients.len() == other.ingredients.len()
+            && self.cookware.len() == other.cookware.len()
+            && self.timers.len() == other.timers.len()
+            && self.inline_quantities.len() == other.inline_quantities.len()
+            && self.ingredients.iter().zip(&other.ingredients).all(|(a, b)| {
+                a.name == b.name
+                    && a.alias == b.alias
+                    && a.note == b.note
+                    && a.relation == b.relation
+                    && a.reference == b.reference
+                    && a.source == b.source
+                    && a.modifiers == b.modifiers
+                    && qty_eq(&a.quantity, &b.quantity)
+            })
+            && self.cookware.iter().zip(&other.cookware).all(|(a, b)| {
+                a.name == b.name
+                    && a.alias == b.alias
+                    && a.note == b.note
+                    && a.relation == b.relation
+                    && a.modifiers == b.modifiers
+                    && qty_eq(&a.quantity, &b.quantity)
+            })
+            && self.timers.iter().zip(&other.timers).all(|(a, b)| {
+                a.name == b.name && qty_eq(&a.quantity, &b.quantity)
+            })
+            && self
+                .inline_quantities
+                .iter()
+                .zip(&other.inline_quantities)
+                .all(|(a, b)| a.equals(b, converter))
+    }
+}
+
 /// A section holding steps
 #[derive(Debug, Default, Serialize, Deserialize, PartialEq, Clone)]
 #[cfg_attr(feature = "ts", derive(Tsify))]
@@ -611,17 +659,19 @@ mod tests {
 
     #[test]
     fn recipe_compare() {
-        let eq = |a: &str, b: &str| recipe(a) == recipe(b);
-        let ne = |a: &str, b: &str| recipe(a) != recipe(b);
+        let converter = Converter::default();
+        let eq = |a: &str, b: &str| recipe(a).equals(&recipe(b), &converter);
+        let ne = |a: &str, b: &str| !recipe(a).equals(&recipe(b), &converter);
 
         assert!(eq(
             indoc! {"
             Add @egg{1} in @water{5%dl} for ~{5%min}
            "},
             indoc! {"
-            Add @egg{1} in @water{0.5%dl} for ~{300%s}
+            Add @egg{1} in @water{0.5%l} for ~{300%s}
            "}
         ));
+        let _ = ne; // suppress unused warning
     }
     #[test]
     fn sibling_in_same_directory() {
