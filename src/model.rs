@@ -583,14 +583,21 @@ pub struct Timer {
 
 #[cfg(test)]
 mod tests {
-    use super::RecipeReference;
+    use super::{Recipe, RecipeReference};
     use crate::{Converter, CooklangParser, Extensions};
 
+    use indoc::indoc;
     use relative_path::RelativePathBuf;
     use std::sync::LazyLock;
 
     pub static PARSER: LazyLock<CooklangParser> =
         LazyLock::new(|| CooklangParser::new(Extensions::all(), Converter::default()));
+
+    #[track_caller]
+    fn recipe(s: &str) -> Recipe {
+        let (recipe, _report) = PARSER.parse(s).into_result().unwrap();
+        recipe
+    }
 
     #[track_caller]
     fn rel(reference: &str, other: &str) -> String {
@@ -602,6 +609,20 @@ mod tests {
         RecipeReference::from(p).unwrap()
     }
 
+    #[test]
+    fn recipe_compare() {
+        let eq = |a: &str, b: &str| recipe(a) == recipe(b);
+        let ne = |a: &str, b: &str| recipe(a) != recipe(b);
+
+        assert!(eq(
+            indoc! {"
+            Add @egg{1} in @water{5%dl} for ~{5%min}
+           "},
+            indoc! {"
+            Add @egg{1} in @water{0.5%dl} for ~{300%s}
+           "}
+        ));
+    }
     #[test]
     fn sibling_in_same_directory() {
         assert_eq!(
