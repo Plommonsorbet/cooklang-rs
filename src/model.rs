@@ -595,6 +595,11 @@ mod tests {
             .to_string()
     }
 
+    #[track_caller]
+    fn rref(p: &str) -> String {
+        RecipeReference::from(p).unwrap()
+    }
+
     #[test]
     fn sibling_in_same_directory() {
         assert_eq!(
@@ -648,35 +653,21 @@ mod tests {
 
     #[test]
     fn preserves_name_of_the_resolved_reference() {
-        let resolved = RecipeReference::from("../sauces/tomato")
-            .unwrap()
-            .relative_to(&RecipeReference::from("./recipes/pasta/spaghetti").unwrap());
-        assert_eq!(resolved.name(), "tomato");
+        assert_eq!(
+            rel("../sauces/tomato", "./recipes/pasta/spaghetti").name(),
+            "tomato"
+        );
     }
 
     #[test]
     fn bare_path_is_prefixed_with_dot_slash() {
-        assert_eq!(
-            RecipeReference::from("spaghetti").unwrap().to_string(),
-            "./spaghetti"
-        );
-        assert_eq!(
-            RecipeReference::from("pasta/spaghetti")
-                .unwrap()
-                .to_string(),
-            "./pasta/spaghetti"
-        );
+        assert_eq!(rref("spaghetti").to_string(), "./spaghetti");
+        assert_eq!(rref("pasta/spaghetti"), "./pasta/spaghetti");
     }
 
     #[test]
     fn already_prefixed_path_is_left_unchanged() {
-        assert_eq!(
-            RecipeReference::from("./spaghetti").unwrap().to_string(),
-            "./spaghetti"
-        );
-        assert_eq!(
-            RecipeReference::from("../spaghetti").unwrap().to_string(),
-            "../spaghetti"
-        );
+        assert_eq!(rref("./spaghetti").to_string(), "./spaghetti");
+        assert_eq!(rref("../spaghetti").to_string(), "../spaghetti");
     }
 }
