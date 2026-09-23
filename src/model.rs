@@ -802,6 +802,119 @@ mod tests {
                 @flour{200%g}
             "},
         ));
+
+        // --- ingredient modifiers, aliases, notes and references ---
+
+        // an optional ingredient is not the same as a required one
+        assert!(ne("@?salt{}", "@salt{}"));
+        assert!(eq("@?salt{}", "@?salt{}"));
+
+        // an alias changes how the ingredient reads, so it is part of the recipe
+        assert!(ne("@flour|plain flour{200%g}", "@flour{200%g}"));
+        assert!(ne("@flour|a{200%g}", "@flour|b{200%g}"));
+
+        // same for a note
+        assert!(ne("@onion{1}(diced)", "@onion{1}"));
+        assert!(ne("@onion{1}(diced)", "@onion{1}(sliced)"));
+
+        // a recipe reference is not a plain ingredient of the same name
+        assert!(ne("@./Guacamole{}", "@Guacamole{}"));
+        // but reference paths are normalized before comparing
+        assert!(eq("@./a/Guac.cook{}", "@./a/../a/Guac.cook{}"));
+
+        // --- timers ---
+
+        // a named timer is not an anonymous one
+        assert!(ne("~resting{10%min}", "~{10%min}"));
+        assert!(ne("~resting{10%min}", "~proving{10%min}"));
+        // a named timer still converts units
+        assert!(eq("~resting{1%h}", "~resting{60%min}"));
+
+        // --- quantity values ---
+
+        // fractions and decimals are the same number
+        assert!(eq("@flour{1/2%dl}", "@flour{0.5%dl}"));
+        assert!(eq("@flour{1/2}", "@flour{0.5}"));
+
+        // ranges convert unit by unit
+        assert!(eq("Cook for ~{1-2%min}", "Cook for ~{60-120%sec}"));
+        // a range is not the single value at its start
+        assert!(ne("Cook for ~{10-15%min}", "Cook for ~{10%min}"));
+
+        // text quantities are compared as text
+        assert!(eq("@salt{pinch}", "@salt{pinch}"));
+        assert!(ne("@salt{pinch}", "@salt{handful}"));
+        assert!(ne("@salt{1}", "@salt{pinch}"));
+
+        // no quantity at all is not a quantity
+        assert!(ne("@salt{}", "@salt{1%g}"));
+
+        // --- units ---
+
+        // unit names are matched regardless of case
+        assert!(eq("@milk{5%dL}", "@milk{5%dl}"));
+        // and through their aliases
+        assert!(eq("Cook for ~{10%min}", "Cook for ~{10%minutes}"));
+        assert!(eq("@milk{1%l}", "@milk{1%liter}"));
+        assert!(eq("@oil{3%tbsp}", "@oil{3%tablespoons}"));
+        // different units of the same physical quantity convert
+        assert!(eq("@oil{3%tsp}", "@oil{1%tbsp}"));
+        // units the converter doesn't know are compared as written
+        assert!(eq("@garlic{2%cloves}", "@garlic{2%cloves}"));
+        assert!(ne("@garlic{2%cloves}", "@garlic{2%pieces}"));
+
+        // --- cookware ---
+
+        // cookware amounts are compared too
+        assert!(eq("Use #pan{2}", "Use #pan{2}"));
+        assert!(ne("Use #pan{2}", "Use #pan{3}"));
+        assert!(ne("Use #pan{2}", "Use #pan{}"));
+
+        // --- sections and text blocks ---
+
+        // the section name is part of the recipe
+        assert!(ne("= Dough =\n@flour{1}", "= Base =\n@flour{1}"));
+        assert!(ne("= Dough =\n@flour{1}", "@flour{1}"));
+
+        // so is a text block
+        assert!(ne("> note a\n@flour{1}", "> note b\n@flour{1}"));
+
+        // --- more metadata ---
+
+        // inline quantities are compared by value
+        assert!(ne("Bake at 200ºC", "Bake at 180ºC"));
+
+        // tags are compared as a list, so their order matters
+        assert!(eq(">> tags: a, b\n@f{1}", ">> tags: a, b\n@f{1}"));
+        assert!(ne(">> tags: a, b\n@f{1}", ">> tags: b, a\n@f{1}"));
+
+        // the remaining standard keys are compared as written
+        assert!(ne(">> description: x\n@f{1}", ">> description: y\n@f{1}"));
+        assert!(ne(
+            ">> difficulty: easy\n@f{1}",
+            ">> difficulty: hard\n@f{1}"
+        ));
+        assert!(ne(">> source: a\n@f{1}", ">> source: b\n@f{1}"));
+        assert!(ne(">> author: a\n@f{1}", ">> author: b\n@f{1}"));
+
+        // key aliases resolve to the same standard key
+        assert!(eq(">> time: 10 min\n@f{1}", ">> duration: 10 min\n@f{1}"));
+        assert!(eq(">> course: main\n@f{1}", ">> category: main\n@f{1}"));
+
+        // custom keys are compared as written, and must be present in both
+        assert!(ne(">> mykey: a\n@f{1}", ">> mykey: b\n@f{1}"));
+        assert!(ne(">> mykey: a\n@f{1}", "@f{1}"));
+
+        // yield accepts a spaced unit, a glued one and the `%` separator
+        assert!(eq(">> yield: 2.5 dl\n@f{1}", ">> yield: 2.5dl\n@f{1}"));
+        assert!(eq(">> yield: 3%dl\n@f{1}", ">> yield: 0.3%l\n@f{1}"));
+
+        // yield and yields compare to the same
+        assert!(eq(">> yield: 12\n@f{1}", ">> yields: 12\n@f{1}"));
+
+        // KNOWN GAP: time values are compared as written, so the same duration
+        // spelled two ways is not equal
+        assert!(ne(">> time: 10 min\n@f{1}", ">> time: 10 minutes\n@f{1}"));
     }
     #[test]
     fn sibling_in_same_directory() {
