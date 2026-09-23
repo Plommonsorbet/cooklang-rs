@@ -731,67 +731,25 @@ mod tests {
         assert!(ne("Use #pan{small}", "Use #pan{big}"));
 
         // different metadata is not equal
-        assert!(ne(
-            indoc! {"
-                >> title: Pasta
-            "},
-            indoc! {"
-                >> title: Pizza
-            "},
-        ));
+        assert!(ne(">> title: Pasta", ">> title: Pizza"));
 
         // inline quantity: same value and unit is equal
         assert!(eq("Bake at 200ºC", "Bake at 200ºC"));
 
         // serves is an alias for servings
-        assert!(eq(
-            indoc! {"
-                >> serves: 4
-            "},
-            indoc! {"
-                >> servings: 4
-            "},
-        ));
+        assert!(eq(">> serves: 4", ">> servings: 4"));
 
         // different servings count is not equal
-        assert!(ne(
-            indoc! {"
-                >> servings: 4
-            "},
-            indoc! {"
-                >> servings: 8
-            "},
-        ));
+        assert!(ne(">> servings: 4", ">> servings: 8"));
 
         // yield is a quantity: 500%g == 0.5%kg (unit conversion)
-        assert!(eq(
-            indoc! {"
-                >> yield: 500%g
-            "},
-            indoc! {"
-                >> yield: 0.5%kg
-            "},
-        ));
+        assert!(eq(">> yield: 500%g", ">> yield: 0.5%kg"));
 
         // yield with different amounts is not equal
-        assert!(ne(
-            indoc! {"
-                >> yield: 500%g
-            "},
-            indoc! {"
-                >> yield: 1000%g
-            "},
-        ));
+        assert!(ne(">> yield: 500%g", ">> yield: 1000%g"));
 
         // yield and servings are distinct concepts
-        assert!(ne(
-            indoc! {"
-                >> yield: 500%g
-            "},
-            indoc! {"
-                >> servings: 4
-            "},
-        ));
+        assert!(ne(">> yield: 500%g", ">> servings: 4"));
 
         // --- ingredient modifiers, aliases, notes and references ---
 
@@ -899,175 +857,42 @@ mod tests {
         assert!(ne("Bake at 200ºC", "Bake at 180ºC"));
 
         // tags are compared as a list, so their order matters
-        assert!(eq(
-            indoc! {"
-                >> tags: a, b
-            "},
-            indoc! {"
-                >> tags: a, b
-            "},
-        ));
-        assert!(ne(
-            indoc! {"
-                >> tags: a, b
-            "},
-            indoc! {"
-                >> tags: b, a
-            "},
-        ));
+        assert!(eq(">> tags: a, b", ">> tags: a, b"));
+        assert!(ne(">> tags: a, b", ">> tags: b, a"));
 
         // the remaining standard keys are compared as written
-        assert!(ne(
-            indoc! {"
-                >> description: x
-            "},
-            indoc! {"
-                >> description: y
-            "},
-        ));
-        assert!(ne(
-            indoc! {"
-                >> difficulty: easy
-            "},
-            indoc! {"
-                >> difficulty: hard
-            "},
-        ));
-        assert!(ne(
-            indoc! {"
-                >> source: a
-            "},
-            indoc! {"
-                >> source: b
-            "},
-        ));
-        assert!(ne(
-            indoc! {"
-                >> author: a
-            "},
-            indoc! {"
-                >> author: b
-            "},
-        ));
+        assert!(ne(">> description: x", ">> description: y"));
+        assert!(ne(">> difficulty: easy", ">> difficulty: hard"));
+        assert!(ne(">> source: a", ">> source: b"));
+        assert!(ne(">> author: a", ">> author: b"));
 
         // key aliases resolve to the same standard key
-        assert!(eq(
-            indoc! {"
-                >> time: 10 min
-            "},
-            indoc! {"
-                >> duration: 10 min
-            "},
-        ));
-        assert!(eq(
-            indoc! {"
-                >> course: main
-            "},
-            indoc! {"
-                >> category: main
-            "},
-        ));
+        assert!(eq(">> time: 10 min", ">> duration: 10 min"));
+        assert!(eq(">> course: main", ">> category: main"));
 
         // custom keys are compared as written, and must be present in both
-        assert!(ne(
-            indoc! {"
-                >> mykey: a
-            "},
-            indoc! {"
-                >> mykey: b
-            "},
-        ));
+        assert!(ne(">> mykey: a", ">> mykey: b"));
 
         // yield accepts a spaced unit, a glued one and the `%` separator
-        assert!(eq(
-            indoc! {"
-                >> yield: 2.5 dl
-            "},
-            indoc! {"
-                >> yield: 2.5dl
-            "},
-        ));
-        assert!(eq(
-            indoc! {"
-                >> yield: 3%dl
-            "},
-            indoc! {"
-                >> yield: 0.3%l
-            "},
-        ));
+        assert!(eq(">> yield: 2.5 dl", ">> yield: 2.5dl"));
+        assert!(eq(">> yield: 3%dl", ">> yield: 0.3%l"));
 
         // yield and yields compare to the same
-        assert!(eq(
-            indoc! {"
-                >> yield: 12
-            "},
-            indoc! {"
-                >> yields: 12
-            "},
-        ));
+        assert!(eq(">> yield: 12", ">> yields: 12"));
 
         // time values are compared as durations, so the same duration
         // spelled two ways is equal
-        assert!(eq(
-            indoc! {"
-                >> time: 10 min
-            "},
-            indoc! {"
-                >> time: 10 minutes
-            "},
-        ));
-        assert!(eq(
-            indoc! {"
-                >> time: 1h30m
-            "},
-            indoc! {"
-                >> time: 90 min
-            "},
-        ));
-        assert!(ne(
-            indoc! {"
-                >> time: 10 min
-            "},
-            indoc! {"
-                >> time: 15 min
-            "},
-        ));
+        assert!(eq(">> time: 10 min", ">> time: 10 minutes"));
+        assert!(eq(">> time: 1h30m", ">> time: 90 min"));
+        assert!(ne(">> time: 10 min", ">> time: 15 min"));
 
         // same for prep and cook time
-        assert!(eq(
-            indoc! {"
-                >> prep time: 1 hour
-            "},
-            indoc! {"
-                >> prep time: 60 min
-            "},
-        ));
-        assert!(ne(
-            indoc! {"
-                >> cook time: 1 hour
-            "},
-            indoc! {"
-                >> cook time: 2 hours
-            "},
-        ));
+        assert!(eq(">> prep time: 1 hour", ">> prep time: 60 min"));
+        assert!(ne(">> cook time: 1 hour", ">> cook time: 2 hours"));
 
         // time values that don't parse are still compared as written
-        assert!(eq(
-            indoc! {"
-                >> time: a while
-            "},
-            indoc! {"
-                >> time: a while
-            "},
-        ));
-        assert!(ne(
-            indoc! {"
-                >> time: a while
-            "},
-            indoc! {"
-                >> time: forever
-            "},
-        ));
+        assert!(eq(">> time: a while", ">> time: a while"));
+        assert!(ne(">> time: a while", ">> time: forever"));
     }
     #[test]
     fn sibling_in_same_directory() {
