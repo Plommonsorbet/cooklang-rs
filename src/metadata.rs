@@ -96,7 +96,7 @@ impl FromStr for StdKey {
             "author" => Self::Author,
             "source" => Self::Source,
             "servings" | "serves" => Self::Servings,
-            "yield" => Self::Yield,
+            "yield" | "yields" => Self::Yield,
             "course" | "category" => Self::Course,
             "locale" => Self::Locale,
             "time" | "duration" | "time required" => Self::Time,
@@ -288,10 +288,7 @@ impl SemanticEq for Metadata {
 }
 
 /// Look up a value in a mapping by any alias of the given [`StdKey`].
-fn get_by_std_key<'a>(
-    m: &'a serde_yaml::Mapping,
-    sk: StdKey,
-) -> Option<&'a serde_yaml::Value> {
+fn get_by_std_key<'a>(m: &'a serde_yaml::Mapping, sk: StdKey) -> Option<&'a serde_yaml::Value> {
     m.iter()
         .find(|(k, _)| {
             k.as_str()
@@ -306,13 +303,14 @@ fn get_by_std_key<'a>(
 /// Accepts `"500%g"` (value + unit) or a plain YAML number/string like `"4"` (no unit).
 fn parse_yield_qty(v: &serde_yaml::Value) -> Option<Quantity> {
     match v {
-        serde_yaml::Value::Number(n) => {
-            Some(Quantity::new(Value::from(n.as_f64()?), None))
-        }
+        serde_yaml::Value::Number(n) => Some(Quantity::new(Value::from(n.as_f64()?), None)),
         serde_yaml::Value::String(s) => {
             if let Some((val_str, unit)) = s.split_once('%') {
                 let val: f64 = val_str.trim().parse().ok()?;
-                Some(Quantity::new(Value::from(val), Some(unit.trim().to_string())))
+                Some(Quantity::new(
+                    Value::from(val),
+                    Some(unit.trim().to_string()),
+                ))
             } else {
                 let val: f64 = s.trim().parse().ok()?;
                 Some(Quantity::new(Value::from(val), None))
