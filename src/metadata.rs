@@ -12,6 +12,7 @@ use tsify::Tsify;
 use crate::{
     convert::{ConvertError, ConvertTo, ConvertUnit, ConvertValue, PhysicalQuantity, UnknownUnit},
     quantity::Value,
+    semantic_eq::SemanticEq,
     Converter, Quantity,
 };
 
@@ -248,17 +249,17 @@ impl Metadata {
     /// the same key, numeric servings are compared with tolerance, and yield is
     /// compared as a unit-aware [`Quantity`].
     pub fn equals(&self, other: &Self, converter: &Converter) -> bool {
-        let servings_eq = match (self.servings(), other.servings()) {
-            (Some(a), Some(b)) => a == b,
-            (None, None) => true,
-            _ => false,
-        };
+        SemanticEq::equals(self, other, converter)
+    }
+}
 
-        let yield_eq = match (self.yield_quantity(), other.yield_quantity()) {
-            (Some(a), Some(b)) => a.equals(&b, converter),
-            (None, None) => true,
-            _ => false,
-        };
+impl SemanticEq for Metadata {
+    fn equals(&self, other: &Self, converter: &Converter) -> bool {
+        let servings_eq = self.servings() == other.servings();
+
+        let yield_eq = self
+            .yield_quantity()
+            .equals(&other.yield_quantity(), converter);
 
         let simple_std_eq = [
             StdKey::Title,

@@ -12,6 +12,7 @@ use tsify::Tsify;
 use crate::{
     convert::{ConvertError, ConvertTo, Converter, PhysicalQuantity, Unit},
     float::equal_f64_relative,
+    semantic_eq::{unordered_equals, SemanticEq},
 };
 
 /// A quantity used in components
@@ -393,6 +394,12 @@ impl Quantity {
     /// a unit or with a unit unknown to the `converter`, are compared as
     /// written.
     pub fn equals(&self, other: &Self, converter: &Converter) -> bool {
+        SemanticEq::equals(self, other, converter)
+    }
+}
+
+impl SemanticEq for Quantity {
+    fn equals(&self, other: &Self, converter: &Converter) -> bool {
         // a common system, otherwise each one would go to the base unit of its
         // own and units of different systems would never be comparable
         let to = ConvertTo::Base(converter.default_system());
@@ -754,18 +761,19 @@ impl GroupedQuantity {
     /// because the two volumes are stored separately in the second one only if
     /// they could not be added.
     pub fn equals(&self, other: &Self, converter: &Converter) -> bool {
-        let eq = |a: &Option<Quantity>, b: &Option<Quantity>| match (a, b) {
-            (Some(a), Some(b)) => a.equals(b, converter),
-            (None, None) => true,
-            _ => false,
-        };
+        SemanticEq::equals(self, other, converter)
+    }
+}
 
-        eq(&self.no_unit, &other.no_unit)
+impl SemanticEq for GroupedQuantity {
+    fn equals(&self, other: &Self, converter: &Converter) -> bool {
+        // `known` is an EnumMap, both always hold the same slots
+        self.no_unit.equals(&other.no_unit, converter)
             && self
                 .known
                 .values()
                 .zip(other.known.values())
-                .all(|(a, b)| eq(a, b))
+                .all(|(a, b)| a.equals(b, converter))
             && self.unknown.len() == other.unknown.len()
             && self.unknown.iter().all(|(unit, a)| {
                 other
@@ -777,23 +785,6 @@ impl GroupedQuantity {
             // meaning, so they are compared as a set
             && unordered_equals(&self.other, &other.other, converter)
     }
-}
-
-fn unordered_equals(a: &[Quantity], b: &[Quantity], converter: &Converter) -> bool {
-    if a.len() != b.len() {
-        return false;
-    }
-    let mut matched = vec![false; b.len()];
-    a.iter().all(|qa| {
-        let pair = (0..b.len()).find(|&i| !matched[i] && qa.equals(&b[i], converter));
-        match pair {
-            Some(i) => {
-                matched[i] = true;
-                true
-            }
-            None => false,
-        }
-    })
 }
 
 impl Display for GroupedQuantity {
