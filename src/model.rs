@@ -15,7 +15,8 @@ pub enum ReferenceError {
 use tsify::Tsify;
 
 use crate::{
-    convert::Converter, metadata::Metadata, parser::Modifiers, quantity::Quantity, GroupedQuantity,
+    convert::Converter, metadata::Metadata, parser::Modifiers, quantity::Quantity,
+    semantic_eq::SemanticEq, GroupedQuantity,
 };
 
 /// A complete recipe
@@ -58,43 +59,22 @@ impl Recipe {
     /// Unlike [`PartialEq`], quantities are compared with [`Quantity::equals`],
     /// so `5 dl` equals `0.5 l` and `5 min` equals `300 s`.
     pub fn equals(&self, other: &Self, converter: &Converter) -> bool {
+        SemanticEq::equals(self, other, converter)
+    }
+}
+
+impl SemanticEq for Recipe {
+    fn equals(&self, other: &Self, converter: &Converter) -> bool {
         // Specifically does not compare recipe.source as it is
         // runtime dependent and does not have an "equivalent".
         self.metadata.equals(&other.metadata, converter)
             && self.sections == other.sections
-            && self.ingredients.len() == other.ingredients.len()
-            && self.cookware.len() == other.cookware.len()
-            && self.timers.len() == other.timers.len()
-            && self.inline_quantities.len() == other.inline_quantities.len()
-            && self
-                .ingredients
-                .iter()
-                .zip(&other.ingredients)
-                .all(|(a, b)| a.equals(b, converter))
-            && self
-                .cookware
-                .iter()
-                .zip(&other.cookware)
-                .all(|(a, b)| a.equals(b, converter))
-            && self
-                .timers
-                .iter()
-                .zip(&other.timers)
-                .all(|(a, b)| a.equals(b, converter))
+            && self.ingredients.equals(&other.ingredients, converter)
+            && self.cookware.equals(&other.cookware, converter)
+            && self.timers.equals(&other.timers, converter)
             && self
                 .inline_quantities
-                .iter()
-                .zip(&other.inline_quantities)
-                .all(|(a, b)| a.equals(b, converter))
-    }
-}
-
-/// Compares two optional quantities with [`Quantity::equals`].
-fn quantity_equals(a: &Option<Quantity>, b: &Option<Quantity>, converter: &Converter) -> bool {
-    match (a, b) {
-        (Some(a), Some(b)) => a.equals(b, converter),
-        (None, None) => true,
-        _ => false,
+                .equals(&other.inline_quantities, converter)
     }
 }
 
@@ -294,13 +274,7 @@ impl Ingredient {
     /// [`source`](Self::source) is not part of the comparison: it records which
     /// file the ingredient came from, not what it is.
     pub fn equals(&self, other: &Self, converter: &Converter) -> bool {
-        self.name == other.name
-            && self.alias == other.alias
-            && self.note == other.note
-            && self.relation == other.relation
-            && self.reference == other.reference
-            && self.modifiers == other.modifiers
-            && quantity_equals(&self.quantity, &other.quantity, converter)
+        SemanticEq::equals(self, other, converter)
     }
 
     /// Gets the name the ingredient should be displayed with
@@ -383,6 +357,18 @@ impl Ingredient {
     }
 }
 
+impl SemanticEq for Ingredient {
+    fn equals(&self, other: &Self, converter: &Converter) -> bool {
+        self.name == other.name
+            && self.alias == other.alias
+            && self.note == other.note
+            && self.relation == other.relation
+            && self.reference == other.reference
+            && self.modifiers == other.modifiers
+            && self.quantity.equals(&other.quantity, converter)
+    }
+}
+
 /// A recipe cookware item
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 #[cfg_attr(feature = "ts", derive(Tsify))]
@@ -409,12 +395,7 @@ impl Cookware {
     ///
     /// Unlike [`PartialEq`], the quantity is compared with [`Quantity::equals`].
     pub fn equals(&self, other: &Self, converter: &Converter) -> bool {
-        self.name == other.name
-            && self.alias == other.alias
-            && self.note == other.note
-            && self.relation == other.relation
-            && self.modifiers == other.modifiers
-            && quantity_equals(&self.quantity, &other.quantity, converter)
+        SemanticEq::equals(self, other, converter)
     }
 
     /// Gets the name the cookware item should be displayed with
@@ -455,6 +436,17 @@ impl Cookware {
                     .map(|i| all_cookware[i].quantity.as_ref()),
             )
             .flatten()
+    }
+}
+
+impl SemanticEq for Cookware {
+    fn equals(&self, other: &Self, converter: &Converter) -> bool {
+        self.name == other.name
+            && self.alias == other.alias
+            && self.note == other.note
+            && self.relation == other.relation
+            && self.modifiers == other.modifiers
+            && self.quantity.equals(&other.quantity, converter)
     }
 }
 
@@ -662,7 +654,13 @@ impl Timer {
     /// Unlike [`PartialEq`], the quantity is compared with [`Quantity::equals`],
     /// so `1 h` equals `60 min`.
     pub fn equals(&self, other: &Self, converter: &Converter) -> bool {
-        self.name == other.name && quantity_equals(&self.quantity, &other.quantity, converter)
+        SemanticEq::equals(self, other, converter)
+    }
+}
+
+impl SemanticEq for Timer {
+    fn equals(&self, other: &Self, converter: &Converter) -> bool {
+        self.name == other.name && self.quantity.equals(&other.quantity, converter)
     }
 }
 

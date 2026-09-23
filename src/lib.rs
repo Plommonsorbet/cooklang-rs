@@ -83,6 +83,7 @@ pub mod pantry;
 pub mod parser;
 pub mod quantity;
 pub mod scale;
+pub mod semantic_eq;
 #[cfg(feature = "shopping_list")]
 pub mod shopping_list;
 pub mod span;
@@ -103,6 +104,7 @@ pub use metadata::Metadata;
 pub use model::*;
 pub use parser::Modifiers;
 pub use quantity::{GroupedQuantity, Quantity, Value};
+pub use semantic_eq::SemanticEq;
 pub use span::Span;
 pub use text::Text;
 
