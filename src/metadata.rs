@@ -268,9 +268,6 @@ impl SemanticEq for Metadata {
             StdKey::Author,
             StdKey::Source,
             StdKey::Course,
-            StdKey::Time,
-            StdKey::PrepTime,
-            StdKey::CookTime,
             StdKey::Difficulty,
             StdKey::Cuisine,
             StdKey::Diet,
@@ -280,10 +277,35 @@ impl SemanticEq for Metadata {
         .iter()
         .all(|k| get_by_std_key(&self.map, *k) == get_by_std_key(&other.map, *k));
 
+        let time_eq = parsed_eq(&self.map, &other.map, StdKey::Time, |v| {
+            value_as_time(v, converter).ok()
+        }) && [StdKey::PrepTime, StdKey::CookTime].iter().all(|k| {
+            parsed_eq(&self.map, &other.map, *k, |v| {
+                value_as_minutes(v, converter).ok()
+            })
+        });
+
         let a_custom: Vec<_> = self.map_filtered().collect();
         let b_custom: Vec<_> = other.map_filtered().collect();
 
-        servings_eq && yield_eq && simple_std_eq && a_custom == b_custom
+        servings_eq && yield_eq && simple_std_eq && time_eq && a_custom == b_custom
+    }
+}
+
+/// Compare a standard key by its parsed value, falling back to comparing the
+/// raw values when either side fails to parse.
+fn parsed_eq<T: PartialEq>(
+    a: &serde_yaml::Mapping,
+    b: &serde_yaml::Mapping,
+    sk: StdKey,
+    parse: impl Fn(&serde_yaml::Value) -> Option<T>,
+) -> bool {
+    match (get_by_std_key(a, sk), get_by_std_key(b, sk)) {
+        (Some(a), Some(b)) => match (parse(a), parse(b)) {
+            (Some(pa), Some(pb)) => pa == pb,
+            _ => a == b,
+        },
+        (a, b) => a == b,
     }
 }
 

@@ -1047,15 +1047,79 @@ mod tests {
             "},
         ));
 
-        // KNOWN GAP: time values are compared as written, so the same duration
-        // spelled two ways is not equal
-        assert!(ne(
+        // time values are compared as durations, so the same duration
+        // spelled two ways is equal
+        assert!(eq(
             indoc! {"
                 >> time: 10 min
                 @f{1}
             "},
             indoc! {"
                 >> time: 10 minutes
+                @f{1}
+            "},
+        ));
+        assert!(eq(
+            indoc! {"
+                >> time: 1h30m
+                @f{1}
+            "},
+            indoc! {"
+                >> time: 90 min
+                @f{1}
+            "},
+        ));
+        assert!(ne(
+            indoc! {"
+                >> time: 10 min
+                @f{1}
+            "},
+            indoc! {"
+                >> time: 15 min
+                @f{1}
+            "},
+        ));
+
+        // same for prep and cook time
+        assert!(eq(
+            indoc! {"
+                >> prep time: 1 hour
+                @f{1}
+            "},
+            indoc! {"
+                >> prep time: 60 min
+                @f{1}
+            "},
+        ));
+        assert!(ne(
+            indoc! {"
+                >> cook time: 1 hour
+                @f{1}
+            "},
+            indoc! {"
+                >> cook time: 2 hours
+                @f{1}
+            "},
+        ));
+
+        // time values that don't parse are still compared as written
+        assert!(eq(
+            indoc! {"
+                >> time: a while
+                @f{1}
+            "},
+            indoc! {"
+                >> time: a while
+                @f{1}
+            "},
+        ));
+        assert!(ne(
+            indoc! {"
+                >> time: a while
+                @f{1}
+            "},
+            indoc! {"
+                >> time: forever
                 @f{1}
             "},
         ));
