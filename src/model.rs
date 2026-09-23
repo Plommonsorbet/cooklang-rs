@@ -58,12 +58,8 @@ impl Recipe {
     /// Unlike [`PartialEq`], quantities are compared with [`Quantity::equals`],
     /// so `5 dl` equals `0.5 l` and `5 min` equals `300 s`.
     pub fn equals(&self, other: &Self, converter: &Converter) -> bool {
-        let qty_eq = |a: &Option<Quantity>, b: &Option<Quantity>| match (a, b) {
-            (Some(a), Some(b)) => a.equals(b, converter),
-            (None, None) => true,
-            _ => false,
-        };
-
+        // Specifically does not compare recipe.source as it is
+        // runtime dependent and does not have an "equivalent".
         self.metadata.equals(&other.metadata, converter)
             && self.sections == other.sections
             && self.ingredients.len() == other.ingredients.len()
@@ -74,33 +70,31 @@ impl Recipe {
                 .ingredients
                 .iter()
                 .zip(&other.ingredients)
-                .all(|(a, b)| {
-                    a.name == b.name
-                        && a.alias == b.alias
-                        && a.note == b.note
-                        && a.relation == b.relation
-                        && a.reference == b.reference
-                        && a.modifiers == b.modifiers
-                        && qty_eq(&a.quantity, &b.quantity)
-                })
-            && self.cookware.iter().zip(&other.cookware).all(|(a, b)| {
-                a.name == b.name
-                    && a.alias == b.alias
-                    && a.note == b.note
-                    && a.relation == b.relation
-                    && a.modifiers == b.modifiers
-                    && qty_eq(&a.quantity, &b.quantity)
-            })
+                .all(|(a, b)| a.equals(b, converter))
+            && self
+                .cookware
+                .iter()
+                .zip(&other.cookware)
+                .all(|(a, b)| a.equals(b, converter))
             && self
                 .timers
                 .iter()
                 .zip(&other.timers)
-                .all(|(a, b)| a.name == b.name && qty_eq(&a.quantity, &b.quantity))
+                .all(|(a, b)| a.equals(b, converter))
             && self
                 .inline_quantities
                 .iter()
                 .zip(&other.inline_quantities)
                 .all(|(a, b)| a.equals(b, converter))
+    }
+}
+
+/// Compares two optional quantities with [`Quantity::equals`].
+fn quantity_equals(a: &Option<Quantity>, b: &Option<Quantity>, converter: &Converter) -> bool {
+    match (a, b) {
+        (Some(a), Some(b)) => a.equals(b, converter),
+        (None, None) => true,
+        _ => false,
     }
 }
 
@@ -292,6 +286,23 @@ pub struct Ingredient {
 }
 
 impl Ingredient {
+    /// Compares two ingredients using unit-aware quantity comparison.
+    ///
+    /// Unlike [`PartialEq`], the quantity is compared with [`Quantity::equals`],
+    /// so `500 g` equals `0.5 kg`.
+    ///
+    /// [`source`](Self::source) is not part of the comparison: it records which
+    /// file the ingredient came from, not what it is.
+    pub fn equals(&self, other: &Self, converter: &Converter) -> bool {
+        self.name == other.name
+            && self.alias == other.alias
+            && self.note == other.note
+            && self.relation == other.relation
+            && self.reference == other.reference
+            && self.modifiers == other.modifiers
+            && quantity_equals(&self.quantity, &other.quantity, converter)
+    }
+
     /// Gets the name the ingredient should be displayed with
     pub fn display_name(&self) -> Cow<'_, str> {
         let mut name = Cow::from(&self.name);
@@ -394,6 +405,18 @@ pub struct Cookware {
 }
 
 impl Cookware {
+    /// Compares two cookware items using unit-aware quantity comparison.
+    ///
+    /// Unlike [`PartialEq`], the quantity is compared with [`Quantity::equals`].
+    pub fn equals(&self, other: &Self, converter: &Converter) -> bool {
+        self.name == other.name
+            && self.alias == other.alias
+            && self.note == other.note
+            && self.relation == other.relation
+            && self.modifiers == other.modifiers
+            && quantity_equals(&self.quantity, &other.quantity, converter)
+    }
+
     /// Gets the name the cookware item should be displayed with
     pub fn display_name(&self) -> &str {
         self.alias.as_ref().unwrap_or(&self.name)
@@ -631,6 +654,16 @@ pub struct Timer {
     /// - If the [`TIMER_REQUIRES_TIME`](crate::Extensions::TIMER_REQUIRES_TIME)
     ///   extension is enabled, this is guaranteed to be [`Some`].
     pub quantity: Option<Quantity>,
+}
+
+impl Timer {
+    /// Compares two timers using unit-aware quantity comparison.
+    ///
+    /// Unlike [`PartialEq`], the quantity is compared with [`Quantity::equals`],
+    /// so `1 h` equals `60 min`.
+    pub fn equals(&self, other: &Self, converter: &Converter) -> bool {
+        self.name == other.name && quantity_equals(&self.quantity, &other.quantity, converter)
+    }
 }
 
 #[cfg(test)]
