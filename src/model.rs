@@ -873,11 +873,35 @@ mod tests {
         // --- sections and text blocks ---
 
         // the section name is part of the recipe
-        assert!(ne("= Dough =\n@flour{1}", "= Base =\n@flour{1}"));
-        assert!(ne("= Dough =\n@flour{1}", "@flour{1}"));
+        assert!(ne(
+            indoc! {"
+                = Dough =
+                @flour{1}
+            "},
+            indoc! {"
+                = Base =
+                @flour{1}
+            "},
+        ));
+        assert!(ne(
+            indoc! {"
+                = Dough =
+                @flour{1}
+            "},
+            "@flour{1}",
+        ));
 
         // so is a text block
-        assert!(ne("> note a\n@flour{1}", "> note b\n@flour{1}"));
+        assert!(ne(
+            indoc! {"
+                > note a
+                @flour{1}
+            "},
+            indoc! {"
+                > note b
+                @flour{1}
+            "},
+        ));
 
         // --- more metadata ---
 
@@ -885,36 +909,156 @@ mod tests {
         assert!(ne("Bake at 200ºC", "Bake at 180ºC"));
 
         // tags are compared as a list, so their order matters
-        assert!(eq(">> tags: a, b\n@f{1}", ">> tags: a, b\n@f{1}"));
-        assert!(ne(">> tags: a, b\n@f{1}", ">> tags: b, a\n@f{1}"));
+        assert!(eq(
+            indoc! {"
+                >> tags: a, b
+                @f{1}
+            "},
+            indoc! {"
+                >> tags: a, b
+                @f{1}
+            "},
+        ));
+        assert!(ne(
+            indoc! {"
+                >> tags: a, b
+                @f{1}
+            "},
+            indoc! {"
+                >> tags: b, a
+                @f{1}
+            "},
+        ));
 
         // the remaining standard keys are compared as written
-        assert!(ne(">> description: x\n@f{1}", ">> description: y\n@f{1}"));
         assert!(ne(
-            ">> difficulty: easy\n@f{1}",
-            ">> difficulty: hard\n@f{1}"
+            indoc! {"
+                >> description: x
+                @f{1}
+            "},
+            indoc! {"
+                >> description: y
+                @f{1}
+            "},
         ));
-        assert!(ne(">> source: a\n@f{1}", ">> source: b\n@f{1}"));
-        assert!(ne(">> author: a\n@f{1}", ">> author: b\n@f{1}"));
+        assert!(ne(
+            indoc! {"
+                >> difficulty: easy
+                @f{1}
+            "},
+            indoc! {"
+                >> difficulty: hard
+                @f{1}
+            "},
+        ));
+        assert!(ne(
+            indoc! {"
+                >> source: a
+                @f{1}
+            "},
+            indoc! {"
+                >> source: b
+                @f{1}
+            "},
+        ));
+        assert!(ne(
+            indoc! {"
+                >> author: a
+                @f{1}
+            "},
+            indoc! {"
+                >> author: b
+                @f{1}
+            "},
+        ));
 
         // key aliases resolve to the same standard key
-        assert!(eq(">> time: 10 min\n@f{1}", ">> duration: 10 min\n@f{1}"));
-        assert!(eq(">> course: main\n@f{1}", ">> category: main\n@f{1}"));
+        assert!(eq(
+            indoc! {"
+                >> time: 10 min
+                @f{1}
+            "},
+            indoc! {"
+                >> duration: 10 min
+                @f{1}
+            "},
+        ));
+        assert!(eq(
+            indoc! {"
+                >> course: main
+                @f{1}
+            "},
+            indoc! {"
+                >> category: main
+                @f{1}
+            "},
+        ));
 
         // custom keys are compared as written, and must be present in both
-        assert!(ne(">> mykey: a\n@f{1}", ">> mykey: b\n@f{1}"));
-        assert!(ne(">> mykey: a\n@f{1}", "@f{1}"));
+        assert!(ne(
+            indoc! {"
+                >> mykey: a
+                @f{1}
+            "},
+            indoc! {"
+                >> mykey: b
+                @f{1}
+            "},
+        ));
+        assert!(ne(
+            indoc! {"
+                >> mykey: a
+                @f{1}
+            "},
+            "@f{1}",
+        ));
 
         // yield accepts a spaced unit, a glued one and the `%` separator
-        assert!(eq(">> yield: 2.5 dl\n@f{1}", ">> yield: 2.5dl\n@f{1}"));
-        assert!(eq(">> yield: 3%dl\n@f{1}", ">> yield: 0.3%l\n@f{1}"));
+        assert!(eq(
+            indoc! {"
+                >> yield: 2.5 dl
+                @f{1}
+            "},
+            indoc! {"
+                >> yield: 2.5dl
+                @f{1}
+            "},
+        ));
+        assert!(eq(
+            indoc! {"
+                >> yield: 3%dl
+                @f{1}
+            "},
+            indoc! {"
+                >> yield: 0.3%l
+                @f{1}
+            "},
+        ));
 
         // yield and yields compare to the same
-        assert!(eq(">> yield: 12\n@f{1}", ">> yields: 12\n@f{1}"));
+        assert!(eq(
+            indoc! {"
+                >> yield: 12
+                @f{1}
+            "},
+            indoc! {"
+                >> yields: 12
+                @f{1}
+            "},
+        ));
 
         // KNOWN GAP: time values are compared as written, so the same duration
         // spelled two ways is not equal
-        assert!(ne(">> time: 10 min\n@f{1}", ">> time: 10 minutes\n@f{1}"));
+        assert!(ne(
+            indoc! {"
+                >> time: 10 min
+                @f{1}
+            "},
+            indoc! {"
+                >> time: 10 minutes
+                @f{1}
+            "},
+        ));
     }
     #[test]
     fn sibling_in_same_directory() {
