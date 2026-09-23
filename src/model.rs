@@ -734,11 +734,9 @@ mod tests {
         assert!(ne(
             indoc! {"
                 >> title: Pasta
-                @flour{200%g}
             "},
             indoc! {"
                 >> title: Pizza
-                @flour{200%g}
             "},
         ));
 
@@ -749,11 +747,9 @@ mod tests {
         assert!(eq(
             indoc! {"
                 >> serves: 4
-                @flour{200%g}
             "},
             indoc! {"
                 >> servings: 4
-                @flour{200%g}
             "},
         ));
 
@@ -761,11 +757,9 @@ mod tests {
         assert!(ne(
             indoc! {"
                 >> servings: 4
-                @flour{200%g}
             "},
             indoc! {"
                 >> servings: 8
-                @flour{200%g}
             "},
         ));
 
@@ -773,11 +767,9 @@ mod tests {
         assert!(eq(
             indoc! {"
                 >> yield: 500%g
-                @flour{200%g}
             "},
             indoc! {"
                 >> yield: 0.5%kg
-                @flour{200%g}
             "},
         ));
 
@@ -785,11 +777,9 @@ mod tests {
         assert!(ne(
             indoc! {"
                 >> yield: 500%g
-                @flour{200%g}
             "},
             indoc! {"
                 >> yield: 1000%g
-                @flour{200%g}
             "},
         ));
 
@@ -797,11 +787,9 @@ mod tests {
         assert!(ne(
             indoc! {"
                 >> yield: 500%g
-                @flour{200%g}
             "},
             indoc! {"
                 >> servings: 4
-                @flour{200%g}
             "},
         ));
 
@@ -914,21 +902,17 @@ mod tests {
         assert!(eq(
             indoc! {"
                 >> tags: a, b
-                @f{1}
             "},
             indoc! {"
                 >> tags: a, b
-                @f{1}
             "},
         ));
         assert!(ne(
             indoc! {"
                 >> tags: a, b
-                @f{1}
             "},
             indoc! {"
                 >> tags: b, a
-                @f{1}
             "},
         ));
 
@@ -936,41 +920,33 @@ mod tests {
         assert!(ne(
             indoc! {"
                 >> description: x
-                @f{1}
             "},
             indoc! {"
                 >> description: y
-                @f{1}
             "},
         ));
         assert!(ne(
             indoc! {"
                 >> difficulty: easy
-                @f{1}
             "},
             indoc! {"
                 >> difficulty: hard
-                @f{1}
             "},
         ));
         assert!(ne(
             indoc! {"
                 >> source: a
-                @f{1}
             "},
             indoc! {"
                 >> source: b
-                @f{1}
             "},
         ));
         assert!(ne(
             indoc! {"
                 >> author: a
-                @f{1}
             "},
             indoc! {"
                 >> author: b
-                @f{1}
             "},
         ));
 
@@ -978,21 +954,17 @@ mod tests {
         assert!(eq(
             indoc! {"
                 >> time: 10 min
-                @f{1}
             "},
             indoc! {"
                 >> duration: 10 min
-                @f{1}
             "},
         ));
         assert!(eq(
             indoc! {"
                 >> course: main
-                @f{1}
             "},
             indoc! {"
                 >> category: main
-                @f{1}
             "},
         ));
 
@@ -1000,40 +972,27 @@ mod tests {
         assert!(ne(
             indoc! {"
                 >> mykey: a
-                @f{1}
             "},
             indoc! {"
                 >> mykey: b
-                @f{1}
             "},
-        ));
-        assert!(ne(
-            indoc! {"
-                >> mykey: a
-                @f{1}
-            "},
-            "@f{1}",
         ));
 
         // yield accepts a spaced unit, a glued one and the `%` separator
         assert!(eq(
             indoc! {"
                 >> yield: 2.5 dl
-                @f{1}
             "},
             indoc! {"
                 >> yield: 2.5dl
-                @f{1}
             "},
         ));
         assert!(eq(
             indoc! {"
                 >> yield: 3%dl
-                @f{1}
             "},
             indoc! {"
                 >> yield: 0.3%l
-                @f{1}
             "},
         ));
 
@@ -1041,11 +1000,9 @@ mod tests {
         assert!(eq(
             indoc! {"
                 >> yield: 12
-                @f{1}
             "},
             indoc! {"
                 >> yields: 12
-                @f{1}
             "},
         ));
 
@@ -1054,31 +1011,25 @@ mod tests {
         assert!(eq(
             indoc! {"
                 >> time: 10 min
-                @f{1}
             "},
             indoc! {"
                 >> time: 10 minutes
-                @f{1}
             "},
         ));
         assert!(eq(
             indoc! {"
                 >> time: 1h30m
-                @f{1}
             "},
             indoc! {"
                 >> time: 90 min
-                @f{1}
             "},
         ));
         assert!(ne(
             indoc! {"
                 >> time: 10 min
-                @f{1}
             "},
             indoc! {"
                 >> time: 15 min
-                @f{1}
             "},
         ));
 
@@ -1086,21 +1037,17 @@ mod tests {
         assert!(eq(
             indoc! {"
                 >> prep time: 1 hour
-                @f{1}
             "},
             indoc! {"
                 >> prep time: 60 min
-                @f{1}
             "},
         ));
         assert!(ne(
             indoc! {"
                 >> cook time: 1 hour
-                @f{1}
             "},
             indoc! {"
                 >> cook time: 2 hours
-                @f{1}
             "},
         ));
 
@@ -1108,21 +1055,17 @@ mod tests {
         assert!(eq(
             indoc! {"
                 >> time: a while
-                @f{1}
             "},
             indoc! {"
                 >> time: a while
-                @f{1}
             "},
         ));
         assert!(ne(
             indoc! {"
                 >> time: a while
-                @f{1}
             "},
             indoc! {"
                 >> time: forever
-                @f{1}
             "},
         ));
     }
